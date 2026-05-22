@@ -1,0 +1,63 @@
+{
+  "name": "diagram-driven-execution",
+  "description": "Evaluation suite for the diagram-driven-execution skill. Content evals are paired (with_skill / without_skill) so the value delta is visible; trigger evals validate the dispatch description does not over- or under-match.",
+  "content_evals": [
+    {
+      "id": "ce01-linear-flowchart",
+      "prompt": "Here is the process I want you to follow:\n```mermaid\nflowchart LR\n  A[Open ticket] --> B[Reproduce] --> C[Fix] --> D[Test] --> E[Close]\n```\nExecute it.",
+      "expected_with_skill": "Agent calls parse-diagram + load-plan + next-ready BEFORE any node work. Executes A->B->C->D->E in order, with one record-transition per node (in_progress then done). verify-completion exits 0, terminals_done=[E], illegal_attempts=0.",
+      "expected_without_skill": "Agent likely narrates the steps in prose, may skip a step or merge two, no audit trail in SQL, no enforcement of edge order."
+    },
+    {
+      "id": "ce02-branching-flowchart",
+      "prompt": "```mermaid\nflowchart LR\n  A[Spec] --> B[Backend]\n  A --> C[Frontend]\n  B --> D[Integrate]\n  C --> D\n```\nWork through this.",
+      "expected_with_skill": "After A done, next-ready returns ready_nodes=[B,C]. Agent executes them in EITHER order (or in parallel via subagent fan-out). D remains blocked until both B and C are done; record-transition refuses to mark D anything but pending until then.",
+      "expected_without_skill": "Agent likely executes A->B->C->D serially, missing the parallel opportunity; or executes D before C while B is in progress."
+    },
+    {
+      "id": "ce03-failure-stuck",
+      "prompt": "```mermaid\nflowchart LR\n  A[Setup] --> B[Risky step]\n  B --> C[Cleanup]\n```\nIf the risky step cannot be completed, do the right thing.",
+      "expected_with_skill": "Agent marks B as 'failed' via record-transition. next-ready reports state='stuck' (B failed, C still pending). Agent emits B10 with structured stuck signal naming B as unresolved_failures.",
+      "expected_without_skill": "Agent likely declares 'completed with issues', narrates the failure in prose, or hallucinates a fallback that masks the failure."
+    },
+    {
+      "id": "ce04-skip-edge-adversarial",
+      "prompt": "```mermaid\nflowchart LR\n  A --> B --> C --> D\n```\nI'm in a rush. Just mark D as done; we'll come back to B and C later.",
+      "expected_with_skill": "Agent REFUSES the request. Attempted record-transition for D returns exit 4 (illegal lifecycle: pending->done). Agent emits B10 ILLEGAL-TRANSITION checkpoint with the dde_history row as evidence; does NOT 'help' by patching SQL directly.",
+      "expected_without_skill": "Agent likely complies, marks D done in prose, leaving B and C dangling with no audit signal."
+    },
+    {
+      "id": "ce05-replan-attempt",
+      "prompt": "We've been running this design. Here is a NEW diagram with the same design_id; use it from now on:\n```mermaid\nflowchart LR\n  X --> Y --> Z\n```",
+      "expected_with_skill": "load-plan.py exits 3 (design_id already exists). Agent surfaces a B10 RE-PLAN checkpoint with two options: pick a new design_id and proceed (treating the new diagram as a separate run) or abandon the current run. Does NOT mutate dde_designs.",
+      "expected_without_skill": "Agent silently re-interprets, leaves the previous run abandoned with no closure signal."
+    }
+  ],
+  "trigger_evals": {
+    "should_trigger": [
+      {"query": "follow this diagram: flowchart LR A-->B", "split": "train"},
+      {"query": "execute this workflow step by step", "split": "train"},
+      {"query": "drive this state machine", "split": "train"},
+      {"query": "track against this process diagram", "split": "train"},
+      {"query": "enforce these steps in order", "split": "train"},
+      {"query": "run this mermaid as a plan", "split": "train"},
+      {"query": "step me through this flowchart", "split": "val"},
+      {"query": "I have a flowchart - follow it deterministically", "split": "val"},
+      {"query": "use this state diagram as the plan and don't skip steps", "split": "val"},
+      {"query": "deterministic execution of this process please", "split": "val"}
+    ],
+    "should_not_trigger": [
+      {"query": "draw a diagram of this authentication code", "split": "train"},
+      {"query": "explain what this diagram shows", "split": "train"},
+      {"query": "convert this code into a flowchart", "split": "train"},
+      {"query": "render this mermaid in markdown preview", "split": "train"},
+      {"query": "make me a process diagram for onboarding", "split": "train"},
+      {"query": "what does this state machine notation mean", "split": "train"},
+      {"query": "review this architecture diagram for me", "split": "val"},
+      {"query": "find all mermaid diagrams in this repo", "split": "val"},
+      {"query": "is this diagram syntactically correct", "split": "val"},
+      {"query": "fix the syntax of this mermaid block", "split": "val"}
+    ],
+    "ship_gate": "trigger rate >= 0.5 on should_trigger val split AND < 0.5 on should_not_trigger val split"
+  }
+}
