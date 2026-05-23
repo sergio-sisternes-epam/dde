@@ -57,33 +57,46 @@ SHAPE_MAP = {
 }
 ARROW_TOKENS = ("-.->", "-->", "==>")
 
+OPEN_TO_CLOSE = {"[": "]", "(": ")", "{": "}"}
 
-def split_chain(line: str):
+
+def split_chain(line: str, lineno: int = 0):
     """Tokenise an edge line into pairwise (left, arrow, label, right) tuples.
 
-    Scans at bracket / paren / brace depth 0 only, so arrows that appear
-    inside node-label brackets are not mistaken for edge arrows. Supports
-    chained Mermaid edge syntax (``A --> B --> C``), with optional per-arrow
-    edge labels (``A -->|x| B -->|y| C``).
+    Scans outside any node-label bracket / paren / brace, so arrows that
+    appear inside ``[...]``, ``(...)``, ``{...}`` are not mistaken for
+    edge arrows. Supports chained Mermaid edge syntax (``A --> B --> C``),
+    with optional per-arrow edge labels (``A -->|x| B -->|y| C``).
 
-    Returns ``None`` when the line contains no edge arrow (the caller should
-    then try standalone-node parsing). Returns a list with one entry for the
-    classic single-edge case and N-1 entries for an N-node chain.
+    A *bracket stack* is used rather than a single depth counter: each
+    opener pushes its expected closer, and a closer only pops the stack
+    when it matches the top. Stray closing characters that occur inside
+    a node label (e.g. ``A[do ) --> something]``) are therefore ignored,
+    instead of incorrectly dropping the depth back to 0 and letting an
+    arrow inside the label be treated as an edge.
+
+    An edge label opener ``|`` with no matching closing ``|`` is a hard
+    grammar error: the function calls :func:`reject` directly with the
+    column of the unterminated opener.
+
+    Returns ``None`` when the line contains no edge arrow (the caller
+    should then try standalone-node parsing). Returns a list with one
+    entry for the classic single-edge case and N-1 entries for an
+    N-node chain.
     """
     arrows: list[tuple[int, int, str, str | None, int]] = []
     i = 0
     n = len(line)
-    depth = 0
+    bracket_stack: list[str] = []
     while i < n:
         c = line[i]
-        if c in "[({":
-            depth += 1
+        if c in OPEN_TO_CLOSE:
+            bracket_stack.append(OPEN_TO_CLOSE[c])
             i += 1
-        elif c in "])}":
-            if depth > 0:
-                depth -= 1
+        elif bracket_stack and c == bracket_stack[-1]:
+            bracket_stack.pop()
             i += 1
-        elif depth == 0:
+        elif not bracket_stack:
             matched: str | None = None
             for arr in ARROW_TOKENS:
                 if line.startswith(arr, i):
@@ -99,9 +112,14 @@ def split_chain(line: str):
                 label_end = end
                 if j < n and line[j] == "|":
                     k = line.find("|", j + 1)
-                    if k != -1:
-                        label = line[j + 1 : k]
-                        label_end = k + 1
+                    if k == -1:
+                        reject(
+                            lineno,
+                            j + 1,
+                            f"unterminated edge label: missing closing '|' after '{matched}' in {line!r}",
+                        )
+                    label = line[j + 1 : k]
+                    label_end = k + 1
                 arrows.append((start, end, matched, label, label_end))
                 i = label_end
             else:
@@ -280,7 +298,7 @@ def main() -> None:
             if stripped.startswith(kw):
                 reject(lineno, 1, f"unsupported feature in v1 grammar: {kw.strip()!r}")
 
-        chain = split_chain(stripped)
+        chain = split_chain(stripped, lineno)
         if chain is None:
             if fmt == "flowchart":
                 res = parse_node_token(stripped, nodes)

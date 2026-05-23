@@ -27,13 +27,13 @@ VERIFY = SCRIPTS / "verify-completion.py"
 
 
 def run_parse(diagram_text: str, design_id: str = "t"):
-    with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as fh:
-        fh.write(diagram_text)
-        path = fh.name
-    return subprocess.run(
-        [sys.executable, str(PARSE), "--input", path, "--design-id", design_id],
-        capture_output=True, text=True,
-    )
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "diagram.mmd"
+        path.write_text(diagram_text)
+        return subprocess.run(
+            [sys.executable, str(PARSE), "--input", str(path), "--design-id", design_id],
+            capture_output=True, text=True,
+        )
 
 
 def assert_eq(actual, expected, msg: str) -> None:
@@ -124,6 +124,38 @@ def test_arrow_inside_bracket_label_is_not_chain_split() -> None:
     assert_eq(node_ids, ["A", "B"], "bracket-arrow node ids")
     label_a = next(n["label"] for n in data["nodes"] if n["id"] == "A")
     assert_eq(label_a, "do --> something", "bracket label preserved")
+
+
+def test_mismatched_closer_inside_bracket_label() -> None:
+    """A literal ``)`` inside ``[...]`` must not pop the bracket stack and
+    leak an arrow inside the label out as an edge."""
+    proc = run_parse(
+        "flowchart LR\n  A[do ) --> something] --> B\n",
+        design_id="bracket-mismatch",
+    )
+    assert_eq(proc.returncode, 0, f"bracket-mismatch exit ({proc.stderr})")
+    data = json.loads(proc.stdout)
+    node_ids = sorted(n["id"] for n in data["nodes"])
+    assert_eq(node_ids, ["A", "B"], "bracket-mismatch node ids")
+    edges = [(e["from"], e["to"]) for e in data["edges"]]
+    assert_eq(edges, [("A", "B")], "bracket-mismatch single edge")
+    label_a = next(n["label"] for n in data["nodes"] if n["id"] == "A")
+    assert_eq(label_a, "do ) --> something", "bracket-mismatch label preserved")
+
+
+def test_unterminated_edge_label_rejected() -> None:
+    """An ``|label`` opener with no closing ``|`` rejects with exit 2 and a
+    dedicated diagnostic, instead of falling through to a generic node
+    parse failure."""
+    proc = run_parse(
+        "flowchart LR\n  A -->|label B\n",
+        design_id="unterm-label",
+    )
+    assert_eq(proc.returncode, 2, f"unterm-label exit ({proc.stderr})")
+    if "unterminated edge label" not in proc.stderr:
+        raise AssertionError(
+            f"unterm-label error message: expected 'unterminated edge label', got {proc.stderr!r}"
+        )
 
 
 def test_silent_drop_integration() -> None:
