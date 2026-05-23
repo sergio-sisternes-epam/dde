@@ -55,9 +55,74 @@ SHAPE_MAP = {
     "[(": "stadium", "((": "circle", "[": "rect",
     "(": "round", "{": "diamond",
 }
-EDGE_RE = re.compile(
-    r"^\s*(.+?)\s*(-->|==>|-\.->)\s*(?:\|([^|]+)\|\s*)?(.+?)\s*$"
-)
+ARROW_TOKENS = ("-.->", "-->", "==>")
+
+
+def split_chain(line: str):
+    """Tokenise an edge line into pairwise (left, arrow, label, right) tuples.
+
+    Scans at bracket / paren / brace depth 0 only, so arrows that appear
+    inside node-label brackets are not mistaken for edge arrows. Supports
+    chained Mermaid edge syntax (``A --> B --> C``), with optional per-arrow
+    edge labels (``A -->|x| B -->|y| C``).
+
+    Returns ``None`` when the line contains no edge arrow (the caller should
+    then try standalone-node parsing). Returns a list with one entry for the
+    classic single-edge case and N-1 entries for an N-node chain.
+    """
+    arrows: list[tuple[int, int, str, str | None, int]] = []
+    i = 0
+    n = len(line)
+    depth = 0
+    while i < n:
+        c = line[i]
+        if c in "[({":
+            depth += 1
+            i += 1
+        elif c in "])}":
+            if depth > 0:
+                depth -= 1
+            i += 1
+        elif depth == 0:
+            matched: str | None = None
+            for arr in ARROW_TOKENS:
+                if line.startswith(arr, i):
+                    matched = arr
+                    break
+            if matched is not None:
+                start = i
+                end = i + len(matched)
+                j = end
+                while j < n and line[j] == " ":
+                    j += 1
+                label: str | None = None
+                label_end = end
+                if j < n and line[j] == "|":
+                    k = line.find("|", j + 1)
+                    if k != -1:
+                        label = line[j + 1 : k]
+                        label_end = k + 1
+                arrows.append((start, end, matched, label, label_end))
+                i = label_end
+            else:
+                i += 1
+        else:
+            i += 1
+
+    if not arrows:
+        return None
+
+    tokens: list[str] = []
+    prev = 0
+    for (start, _end, _arr, _label, label_end) in arrows:
+        tokens.append(line[prev:start].strip())
+        prev = label_end
+    tokens.append(line[prev:].strip())
+
+    return [
+        (tokens[idx], arr, label, tokens[idx + 1])
+        for idx, (_s, _e, arr, label, _le) in enumerate(arrows)
+    ]
 
 
 def reject(lineno: int, col: int, msg: str) -> None:
@@ -215,33 +280,37 @@ def main() -> None:
             if stripped.startswith(kw):
                 reject(lineno, 1, f"unsupported feature in v1 grammar: {kw.strip()!r}")
 
-        m = EDGE_RE.match(stripped)
-        if not m:
+        chain = split_chain(stripped)
+        if chain is None:
             if fmt == "flowchart":
                 res = parse_node_token(stripped, nodes)
                 if res:
                     continue
             reject(lineno, 1, f"line is neither a supported edge nor a standalone node: {stripped!r}")
 
-        left_raw, arrow, label_inner, right_raw = m.group(1), m.group(2), m.group(3), m.group(4)
-        if fmt == "stateDiagram":
-            if label_inner is None and " : " in right_raw:
-                right_raw, note = right_raw.split(" : ", 1)
-                label_inner = note.strip()
-            left_id = left_raw.strip()
-            right_id = right_raw.strip()
-            if left_id != "[*]":
-                add_node(nodes, left_id)
-            if right_id != "[*]":
-                add_node(nodes, right_id)
-            edges.append({"from": left_id, "to": right_id, "label": label_inner, "kind": "solid"})
-        else:
-            left_res = parse_node_token(left_raw, nodes)
-            right_res = parse_node_token(right_raw, nodes)
-            if not left_res or not right_res:
-                reject(lineno, 1, f"could not parse node tokens in edge: {stripped!r}")
-            kind = {"-->": "solid", "==>": "tool-result", "-.->": "dashed"}[arrow]
-            edges.append({"from": left_res[0], "to": right_res[0], "label": label_inner, "kind": kind})
+        last_idx = len(chain) - 1
+        for idx, (left_raw, arrow, label_inner, right_raw) in enumerate(chain):
+            if not left_raw or not right_raw:
+                reject(lineno, 1, f"empty edge endpoint in: {stripped!r}")
+            if fmt == "stateDiagram":
+                # ' : note' is only meaningful on the final right-hand token
+                if label_inner is None and idx == last_idx and " : " in right_raw:
+                    right_raw, note = right_raw.split(" : ", 1)
+                    label_inner = note.strip()
+                left_id = left_raw.strip()
+                right_id = right_raw.strip()
+                if left_id != "[*]":
+                    add_node(nodes, left_id)
+                if right_id != "[*]":
+                    add_node(nodes, right_id)
+                edges.append({"from": left_id, "to": right_id, "label": label_inner, "kind": "solid"})
+            else:
+                left_res = parse_node_token(left_raw, nodes)
+                right_res = parse_node_token(right_raw, nodes)
+                if not left_res or not right_res:
+                    reject(lineno, 1, f"could not parse node tokens in edge: {stripped!r}")
+                kind = {"-->": "solid", "==>": "tool-result", "-.->": "dashed"}[arrow]
+                edges.append({"from": left_res[0], "to": right_res[0], "label": label_inner, "kind": kind})
 
     if not started:
         reject(0, 0, "empty diagram")
