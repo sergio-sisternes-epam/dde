@@ -26,6 +26,20 @@ with the rejection message.
   - `A ==> B`           (kind = `tool-result`)
   - `A -.-> B`          (kind = `dashed`)
   - `A -->|edge label| B`
+  - Chained edges on a single line are expanded into pairwise edges,
+    matching Mermaid's
+    [chaining-of-links](https://mermaid.js.org/syntax/flowchart.html#chaining-of-links)
+    semantics:
+    - `A --> B --> C` is equivalent to `A --> B` followed by `B --> C`.
+    - Bracketed labels attach to the first occurrence of each node id;
+      subsequent occurrences reuse the id (e.g.
+      `a[step-a] --> b[step-b] --> c[step-c]` yields three nodes with
+      their labels and two edges).
+    - Per-arrow edge labels are supported and attach to the arrow they
+      follow: `A -->|first| B --> C` produces edges `(A, B, label=first)`
+      and `(B, C, label=None)`.
+    - The arrow kinds (`-->`, `==>`, `-.->`) may be mixed within a chain;
+      each segment carries the kind of its own arrow.
 - Comments: `%% ...` on their own line.
 - Node label inline annotations (pipe-separated, after the visible
   label text):
