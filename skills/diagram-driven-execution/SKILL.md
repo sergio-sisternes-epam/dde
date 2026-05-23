@@ -56,6 +56,48 @@ isolation. Those are not execution tasks.
 - It does not interpret intent. If a node label is ambiguous, the
   driver persona halts to a human checkpoint.
 
+## Applicability (when dde is worth its overhead)
+
+dde adds value by replacing free-form todo mutation with a
+diagram-grounded, lifecycle-validated, queryable execution
+record. That ceremony is load-bearing for some workloads and
+pure overhead for others. Reach for dde when AT LEAST ONE holds:
+
+- The plan has more than ~3 nodes.
+- Any fan-out, parallelism, or multiple writers touch the same
+  plan.
+- Topological ordering matters (drafting in the wrong order
+  costs rework).
+- The work spans sessions or threads and must re-ground itself
+  on resume (B4 PLAN MEMENTO / B8 ATTENTION ANCHOR).
+- "Done" must be a deterministic gate (`verify-completion`
+  exit 0), not an LLM assertion.
+
+Do NOT reach for dde when ANY of the following describes the
+work:
+
+- Single-node task ("fix this typo", "bump this version"). No
+  DAG; authoring a diagram is pure ceremony.
+- Strictly linear, short (<=3 steps), throwaway work. A plain
+  todo list does the same job with less ceremony.
+- Exploratory or discovery work where the steps are not known
+  in advance. dde requires the diagram up front; authoring it
+  during exploration creates a chicken-and-egg.
+- Advisory or conversational turns with no execution to gate
+  (Q&A, critique, code review).
+- REPL-style iteration where the plan churns every turn.
+
+Rule of thumb: if you would reach for the harness's plain
+`todos` affordance, you do not need dde. If you would reach
+for a sequence diagram or a dependency checklist, you do.
+
+The mandate genesis applies to its step 7b is correctly scoped
+because genesis output is always a multi-module DAG with
+ordering constraints, ~5-20 nodes, and a "every module drafted
+and validated" completion gate -- it meets every "reach for"
+criterion. Other skills considering dde should make the call
+case by case against this section, not by analogy to genesis.
+
 ## Process
 
 ```
