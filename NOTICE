@@ -1,0 +1,13 @@
+diagram-driven-execution (dde)
+Copyright 2026 Sergio Sisternes
+
+This product includes the diagram-driven-execution agent-skill: a
+deterministic execution layer that turns a mermaid diagram into a
+SQL-tracked, lifecycle-validated plan for an AI agent to follow
+step-by-step.
+
+This repository is licensed under the Apache License, Version 2.0
+and is intended for unrestricted use, modification, and
+redistribution (including commercial) subject to the terms of that
+license, including the preservation of this NOTICE file in
+derivative works.
