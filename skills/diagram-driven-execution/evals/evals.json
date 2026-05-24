@@ -27,6 +27,18 @@
       "expected_without_skill": "Agent likely complies, marks D done in prose, leaving B and C dangling with no tracking signal."
     },
     {
+      "id": "ce06-plan-store-linear",
+      "prompt": "store=\"plan\" declared. Here is the workflow:\n```mermaid\nflowchart LR\n  A[Open ticket] --> B[Reproduce] --> C[Fix] --> D[Test] --> E[Close]\n```\nExecute it.",
+      "expected_with_skill": "Agent detects store=\"plan\", verifies diagram is linear (single chain). Creates plan.md with 5 unchecked items. Executes A through E in order: before each node re-reads plan.md, executes the work, then edits plan.md to mark the node [x] and appends to the log. Does NOT make any SQL calls for state tracking. Final read of plan.md confirms all items are [x].",
+      "expected_without_skill": "Agent narrates the steps in prose, may skip a step or merge two, no plan.md created, no systematic tracking."
+    },
+    {
+      "id": "ce07-plan-store-rejects-dag",
+      "prompt": "store=\"plan\" declared. Here is the workflow:\n```mermaid\nflowchart LR\n  A[Spec] --> B[Backend]\n  A --> C[Frontend]\n  B --> D[Integrate]\n  C --> D\n```\nExecute it.",
+      "expected_with_skill": "Agent detects store=\"plan\" and reads the diagram. Identifies that node A has two outgoing edges and node D has two incoming edges — the diagram is NOT linear. Emits B10 HUMAN CHECKPOINT before creating any plan.md, explaining the diagram has branches and recommending a switch to store=\"sql\". Does NOT proceed with plan.md execution.",
+      "expected_without_skill": "Agent ignores the branching structure and either narrates a serial A→B→C→D order or attempts partial tracking without dependency awareness."
+    },
+    {
       "id": "ce05-replan-attempt",
       "prompt": "We've been running this design. Here is a NEW diagram with the same design_id; use it from now on:\n```mermaid\nflowchart LR\n  X --> Y --> Z\n```",
       "expected_with_skill": "Collision check query finds existing todos with the design_id prefix. Agent surfaces a B10 RE-PLAN checkpoint with two options: pick a new design_id and proceed (treating the new diagram as a separate run) or abandon the current run. Does NOT overwrite existing todos.",
@@ -41,13 +53,21 @@
       {"query": "track against this process diagram", "split": "train"},
       {"query": "enforce these steps in order", "split": "train"},
       {"query": "run this mermaid as a plan", "split": "train"},
-      {"query": "step me through this flowchart", "split": "val"},
+      {"query": "use plan.md tracking for this workflow", "split": "val"},
+      {"query": "lightweight execution, no SQL overhead please", "split": "val"},
+      {"query": "store=plan mode for this diagram", "split": "train"},
+      {"query": "follow this flowchart with minimal tracking", "split": "train"},
+      {"query": "execute this linear process using plan.md", "split": "train"},
       {"query": "I have a flowchart - follow it deterministically", "split": "val"},
       {"query": "use this state diagram as the plan and don't skip steps", "split": "val"},
       {"query": "deterministic execution of this process please", "split": "val"}
     ],
     "should_not_trigger": [
-      {"query": "draw a diagram of this authentication code", "split": "train"},
+      {"query": "show me the plan.md file format", "split": "train"},
+      {"query": "what is the difference between SQL and plan.md tracking", "split": "train"},
+      {"query": "convert this diagram to a todo list", "split": "val"},
+      {"query": "summarise what this workflow does", "split": "val"},
+      {"query": "how do I install dde", "split": "train"},
       {"query": "explain what this diagram shows", "split": "train"},
       {"query": "convert this code into a flowchart", "split": "train"},
       {"query": "render this mermaid in markdown preview", "split": "train"},
