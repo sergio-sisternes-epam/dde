@@ -3,86 +3,112 @@
 Auto-attach: any thread that holds the `diagram-driver` persona.
 
 This rule defines the agent contract for interacting with the
-session SQL store. The store is shared substrate (concept 6
-TODO/STATUS). This skill imposes a discipline on top of it.
+session SQL store when driving a diagram-driven plan. The store
+uses the session's native `todos` and `todo_deps` tables.
 
-## Permitted operations
+## Permitted SQL operations
 
-You may invoke ONLY these scripts (relative to the skill root):
+### Read operations (any time)
 
-| Script                          | Purpose                                                 |
-|---------------------------------|---------------------------------------------------------|
-| `scripts/parse-diagram.py`      | parse mermaid into structured JSON                      |
-| `scripts/load-plan.py`          | apply schema + insert design rows (idempotent)          |
-| `scripts/next-ready.py`         | query current ready / done / stuck state                |
-| `scripts/record-transition.py`  | apply a status transition (validated, audited)          |
-| `scripts/verify-completion.py`  | check whether all terminals are reached                 |
+Query ready nodes:
+```sql
+SELECT t.id, t.title FROM todos t
+WHERE t.id LIKE '<design_id>::%'
+  AND t.status = 'pending'
+  AND NOT EXISTS (
+    SELECT 1 FROM todo_deps td
+    JOIN todos dep ON td.depends_on = dep.id
+    WHERE td.todo_id = t.id AND dep.status != 'done'
+  );
+```
 
-Every script reads `DDE_DB_PATH` from the environment (SQLite
-file path; defaults to `.copilot-dde.sqlite` in cwd). The scripts
-use only the Python standard library and run identically on
-macOS, Linux, and Windows. See the SKILL.md "Platform and
-runtime" section.
+Query completion status:
+```sql
+SELECT status, COUNT(*) as cnt FROM todos
+WHERE id LIKE '<design_id>::%' GROUP BY status;
+```
+
+Detect stuck state:
+```sql
+-- If this returns 0 and non-done nodes exist, the design is stuck
+SELECT COUNT(*) FROM todos t
+WHERE t.id LIKE '<design_id>::%'
+  AND t.status = 'pending'
+  AND NOT EXISTS (
+    SELECT 1 FROM todo_deps td
+    JOIN todos dep ON td.depends_on = dep.id
+    WHERE td.todo_id = t.id AND dep.status != 'done'
+  );
+```
+
+Read node metadata (from todos.description JSON):
+```sql
+SELECT id, title, description FROM todos
+WHERE id = '<design_id>::<node_id>';
+```
+
+### Write operations (status transitions only)
+
+Mark a node in progress:
+```sql
+UPDATE todos SET status = 'in_progress', updated_at = datetime('now')
+WHERE id = '<design_id>::<node_id>';
+```
+
+Mark a node done:
+```sql
+UPDATE todos SET status = 'done', updated_at = datetime('now')
+WHERE id = '<design_id>::<node_id>';
+```
+
+Mark a node blocked (failed):
+```sql
+UPDATE todos SET status = 'blocked', updated_at = datetime('now')
+WHERE id = '<design_id>::<node_id>';
+```
 
 ## Forbidden operations
 
-- Direct `UPDATE todos SET status = ...` queries against design
-  rows (composite ids of shape `<design_id>::<node_id>`).
-- Direct `INSERT` or `DELETE` against `dde_designs`, `dde_nodes`,
-  `dde_edges`, `dde_history`.
-- Pruning `dde_history` rows. The audit trail is append-only.
-- Loading a second diagram with the same `design_id` -- the load
-  script refuses, and you must not try to "force" it by mutating
-  rows directly.
-
-A future harness may enforce these forbids at the capability
-level. Until then, the persona enforces them.
+- Direct `INSERT` or `DELETE` against `todos` rows with
+  `<design_id>::` prefix after the initial load.
+- Any `INSERT`, `UPDATE`, or `DELETE` against `todo_deps` rows
+  with `<design_id>::` prefix. The dependency graph is frozen.
+- Updating `status` to any value other than `in_progress`,
+  `done`, or `blocked`.
+- Marking a node `in_progress` without first confirming it
+  appears in the ready-nodes query result.
 
 ## Per-node lifecycle
 
-This is the per-node STATE MACHINE, distinct from the diagram's
-edges. Diagram edges define which OTHER nodes can be `ready`;
-the lifecycle below defines what each node's status may become.
-
 ```
-       pending
-          |
-          v
-        ready  -----------------+
-          |                     |
-          v                     |
-     in_progress  -------> failed
-          |
-          v
-         done
+     pending
+        |
+        v
+   in_progress ---------> blocked
+        |
+        v
+       done
 ```
 
-- `pending`: created by `load-plan.py`; predecessors not yet
-  `done`. Cannot transition directly to `in_progress` or `done`.
-- `ready`: promoted automatically by `record-transition.py` when
-  every predecessor reaches `done`. The agent picks from this
-  set and only this set.
+- `pending`: initial state for all nodes. A node is "ready"
+  (eligible for pickup) when it is `pending` AND every node it
+  depends on is `done`. This is computed by the ready-nodes
+  query, not stored as a separate status.
 - `in_progress`: the agent is executing this node's work. The
-  next legal transition is `done` (success) or `failed`.
-- `done`: terminal success. Triggers re-evaluation of children's
-  `ready` status atomically inside `record-transition.py`.
-- `failed`: terminal failure. Triggers `verify-completion.py`
-  to flag the design as incomplete; an operator decision is
-  required (B10 HUMAN CHECKPOINT).
+  next legal status is `done` (success) or `blocked` (failure).
+- `done`: terminal success. After marking a node done, re-query
+  to discover newly-ready children.
+- `blocked`: terminal failure. Requires operator intervention
+  (B10 HUMAN CHECKPOINT). The agent must not mark blocked nodes
+  as done or retry them without operator direction.
 
-Any other transition (e.g. `pending -> done`, `done -> ready`,
-`failed -> in_progress`) exits 4 and writes a rejection row to
-`dde_history`. Rejection is structural; do not interpret it as
-"can be worked around".
+Any other transition (e.g. `pending` → `done`, `done` → `pending`,
+`blocked` → `in_progress`) is an illegal transition. The agent
+must not issue it. There is no script-level gate — the discipline
+is the contract.
 
-## Exit-code dictionary
+## Design ID convention
 
-| Exit | Meaning                                            | Agent response                        |
-|------|----------------------------------------------------|---------------------------------------|
-| 0    | accepted                                           | continue loop                         |
-| 2    | grammar reject (parse-diagram only)                | return diagram to operator with diag  |
-| 3    | design_id already exists (load-plan only)          | B10 RE-PLAN checkpoint                |
-| 4    | illegal lifecycle (record-transition only)         | B10 ILLEGAL-TRANSITION checkpoint     |
-| 5    | node / design_id not found                         | B10 STRUCTURAL checkpoint             |
-| 6    | incomplete (verify-completion only)                | emit stuck/incomplete signal          |
-| 1    | other                                              | B10 INFRASTRUCTURE checkpoint         |
+Todo IDs use the composite pattern `<design_id>::<node_id>`.
+Design IDs must match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}` to be
+SQL-literal-safe and prefix-safe for LIKE queries.

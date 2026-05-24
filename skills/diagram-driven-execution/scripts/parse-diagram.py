@@ -2,7 +2,8 @@
 """parse-diagram.py
 
 Deterministically parse a bounded subset of mermaid into a JSON plan
-structure. The output is consumed by load-plan.py.
+structure.  The agent consumes the JSON output and loads it into the
+session's native SQL store (todos + todo_deps).
 
 Supported grammar (v1) -- everything else is REJECTED LOUDLY:
   flowchart LR | flowchart TD | flowchart RL | flowchart BT
@@ -20,6 +21,7 @@ Supported grammar (v1) -- everything else is REJECTED LOUDLY:
 
 NOT supported in v1 (rejected): subgraphs, composite states, class
 definitions, click handlers, conditional styling, themes.
+Cycles are rejected in ALL diagram types.
 
 Usage:
   python3 parse-diagram.py --input <file> [--design-id <id>]
@@ -38,8 +40,55 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
-from _dde import die, emit_json, parse_args, print_help_from_docstring
+
+# ---------------------------------------------------------------------------
+# Helpers (inlined from former _dde.py — stdlib only)
+# ---------------------------------------------------------------------------
+
+DESIGN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+
+def die(msg: str, code: int = 1) -> None:
+    """Print an error to stderr and exit with the given code."""
+    sys.stderr.write(f"{Path(sys.argv[0]).name}: {msg}\n")
+    sys.exit(code)
+
+
+def emit_json(payload: dict[str, Any]) -> None:
+    """Print a JSON object to stdout, sorted + indented, deterministic."""
+    json.dump(payload, sys.stdout, indent=2, sort_keys=True)
+    sys.stdout.write("\n")
+
+
+def parse_args(argv: list[str], spec: dict[str, bool]) -> dict[str, str]:
+    """Tiny long-flag parser. spec maps flag -> requires_value (bool)."""
+    out: dict[str, str] = {}
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--help", "-h"):
+            out["__help__"] = "1"
+            return out
+        if a.startswith("--") and a[2:] in spec:
+            key = a[2:]
+            if spec[key]:
+                if i + 1 >= len(argv):
+                    die(f"flag --{key} requires a value", code=1)
+                out[key] = argv[i + 1]
+                i += 2
+            else:
+                out[key] = "1"
+                i += 1
+        else:
+            die(f"unknown argument: {a}", code=1)
+    return out
+
+
+def print_help_from_docstring(doc: str | None) -> None:
+    """Print the calling script's module docstring as --help text."""
+    sys.stdout.write((doc or "").strip() + "\n")
 
 
 REJECTED_KEYWORDS = (
@@ -239,7 +288,7 @@ def detect_cycle(nodes: dict, edges: list, entry_nodes: list) -> None:
                 stack[-1] = (u, i + 1)
                 v = adj[u][i]
                 if colour[v] == GREY:
-                    reject(0, 0, f"cycle detected at edge {u} --> {v} (use stateDiagram-v2 for cycles)")
+                    reject(0, 0, f"cycle detected at edge {u} --> {v} (cycles are not supported in v1 grammar)")
                 if colour[v] == WHITE:
                     stack.append((v, 0))
             else:
@@ -258,6 +307,11 @@ def main() -> None:
         die("--input <file> required and must exist")
 
     design_id = args.get("design-id") or ""
+    if design_id and not DESIGN_ID_RE.match(design_id):
+        die(
+            f"invalid --design-id '{design_id}': must match "
+            f"[A-Za-z0-9][A-Za-z0-9_-]{{0,63}}"
+        )
     fmt = args.get("format") or "auto"
 
     raw = Path(input_path).read_bytes()
@@ -349,8 +403,7 @@ def main() -> None:
     if not terminal_nodes:
         reject(0, 0, "no terminal node(s) found")
 
-    if fmt == "flowchart":
-        detect_cycle(nodes, edges, entry_nodes)
+    detect_cycle(nodes, edges, entry_nodes)
 
     emit_json({
         "design_id":      design_id or source_hash[:12],

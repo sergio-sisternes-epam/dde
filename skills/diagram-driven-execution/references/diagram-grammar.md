@@ -55,9 +55,9 @@ with the rejection message.
 - Header: `stateDiagram-v2`.
 - Transitions: `A --> B` and `A --> B : note label`.
 - Entry / exit pseudostate: `[*]` on either side.
-- Cycles are permitted (e.g. `A --> A`) but every cycling node
-  MUST carry a `max_iter` annotation; the orchestrator bounds
-  re-entry per A8 ALIGNMENT LOOP discipline.
+- Cycles are permitted syntactically but **rejected by the parser**
+  in all diagram types. The lite-mode dependency model requires
+  acyclic graphs. Use linear or branching structures only.
 
 ## Rejected in v1 (loud)
 
