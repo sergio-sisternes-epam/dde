@@ -1,6 +1,6 @@
 name: dde
 version: 0.3.0
-description: diagram-driven-execution. Turn a mermaid diagram into a tracked execution plan. Supports two store modes: SQL (default, for DAGs and parallel workflows) via parse-diagram.py + todos/todo_deps, and plan.md (store="plan", for linear workflows ≤10 nodes) via the session plan persistence slot. Runtime skill; pairs with sergio-sisternes-epam/genesis at design time.
+description: "diagram-driven-execution. Turn a mermaid diagram into a tracked execution plan. Supports two store modes: SQL (default, for DAGs and parallel workflows) via parse-diagram.py + todos/todo_deps, and plan.md (store=plan, for linear workflows up to 10 nodes) via the session plan persistence slot. Runtime skill; pairs with sergio-sisternes-epam/genesis at design time."
 author: Sergio Sisternes <sergio_sisternes@epam.com>
 license: Apache-2.0
 homepage: https://github.com/sergio-sisternes-epam/dde
