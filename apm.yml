@@ -1,6 +1,6 @@
 name: dde
-version: 0.1.0
-description: diagram-driven-execution. Turn a mermaid diagram into a deterministic process contract using session SQL as a state-machine cursor. Runtime skill; pairs with sergio-sisternes-epam/genesis at design time.
+version: 0.2.0
+description: diagram-driven-execution. Turn a mermaid diagram into a tracked execution plan using one deterministic parse step and the session's native SQL store for state tracking. Runtime skill; pairs with sergio-sisternes-epam/genesis at design time.
 author: Sergio Sisternes <sergio_sisternes@epam.com>
 license: Apache-2.0
 homepage: https://github.com/sergio-sisternes-epam/dde
