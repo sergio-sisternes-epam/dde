@@ -92,22 +92,18 @@ WHERE id = '<design_id>::<node_id>';
 
 ## Per-node lifecycle
 
-```
-        pending
-           |
-           v
-      in_progress ──────────> blocked
-           |
-           ├──────────────> skipped  (gate routed away)
-           |
-           └──────────────> waiting  (escalation checkpoint)
-                                |
-                          [operator resumes]
-                                |
-                            in_progress (re-enter)
-           |
-           v
-          done
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> in_progress : deps resolved\n(all done or skipped)
+    in_progress --> done : success
+    in_progress --> blocked : failure\n(B10 HUMAN CHECKPOINT)
+    in_progress --> skipped : gate routed away
+    in_progress --> waiting : escalation sent
+    waiting --> in_progress : operator resumes
+    done --> [*]
+    blocked --> [*]
+    skipped --> [*]
 ```
 
 - `pending`: ready when all deps are `done` or `skipped`.
