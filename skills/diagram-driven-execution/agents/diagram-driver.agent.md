@@ -62,6 +62,8 @@ invocation block:
 
 Do NOT mix disciplines within a single run.
 
+<skill define="implementation" name="dde-simple" implements="diagram-driven-execution">
+
 ## Simple discipline (mode="simple")
 
 ### When to downgrade to advanced
@@ -117,6 +119,10 @@ UPDATE   status → done (or blocked) after execution
 SELECT   verify: WHERE status NOT IN ('done','skipped') returns 0
 ```
 
+</skill>
+
+<skill define="implementation" name="dde-advanced" implements="diagram-driven-execution">
+
 ## Advanced discipline (mode="advanced")
 
 ### Hard rules
@@ -166,6 +172,8 @@ When a gate has no matching branch label:
    labels, stop execution.
 2. Otherwise: emit B10 HUMAN CHECKPOINT with the same details, mark
    gate `waiting`.
+
+</skill>
 
 ## What you do not own
 
