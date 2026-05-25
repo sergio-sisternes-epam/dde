@@ -1,9 +1,8 @@
 # transition-protocol (rule)
 
 Auto-attach: any thread that holds the `diagram-driver` persona AND
-whose skill invocation block declares `mode="advanced"` (or the deprecated
-alias `store="sql"`), OR when the driver detects loop/gate node types
-in any diagram.
+whose skill invocation block declares `mode="advanced"`, OR when the
+driver detects loop/gate node types in any diagram.
 
 This rule defines the agent contract for the **advanced execution path**:
 deterministic parse via `parse-diagram.py`, full dependency graph via
