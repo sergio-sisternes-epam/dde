@@ -62,7 +62,7 @@ invocation block:
 
 Do NOT mix disciplines within a single run.
 
-<skill define="implementation" name="dde-simple" implements="diagram-driven-execution">
+<skill define="implementation" name="dde-simple" implements="dde-simple">
 
 ## Simple discipline (mode="simple")
 
@@ -121,7 +121,7 @@ SELECT   verify: WHERE status NOT IN ('done','skipped') returns 0
 
 </skill>
 
-<skill define="implementation" name="dde-advanced" implements="diagram-driven-execution">
+<skill define="implementation" name="dde-advanced" implements="dde-advanced">
 
 ## Advanced discipline (mode="advanced")
 

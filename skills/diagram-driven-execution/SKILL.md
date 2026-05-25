@@ -66,10 +66,10 @@ description: >-
 </skill>
 
 <!-- ═══════════════════════════════════════════════════════
-     AML IMPLEMENTATION DEFINITIONS
+     AML INTERFACE DEFINITIONS — MODE CONTRACTS
      ═══════════════════════════════════════════════════════ -->
 
-<skill define="implementation" name="dde-simple" implements="diagram-driven-execution">
+<skill define="interface" name="dde-simple" implements="diagram-driven-execution">
   Lightweight path. Agent reads diagram from context; no subprocess.
   Nodes: dde.grammar-check (assert no gate/loop, count<=15),
   dde.plan-init (context extraction), dde.execution-loop (rowid order
@@ -77,7 +77,7 @@ description: >-
   dde.loop-expander. Protocol: references/simple-protocol.md
 </skill>
 
-<skill define="implementation" name="dde-advanced" implements="diagram-driven-execution">
+<skill define="interface" name="dde-advanced" implements="diagram-driven-execution">
   Full path. Deterministic parse via parse-diagram.py.
   Nodes: dde.grammar-check (parse-diagram.py), dde.loop-expander
   (pre-expand at init), dde.plan-init (todos + todo_deps + dde_gates),
