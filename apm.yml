@@ -1,6 +1,6 @@
 name: dde
-version: 0.4.0
-description: "diagram-driven-execution. Turn a mermaid diagram into a tracked execution plan. Supports two store modes (both use SQL todos table and produce the Copilot visual plan widget): SQL lite (store=plan, linear workflows up to 10 nodes, no parse script, no todo_deps) and full SQL (default, DAGs and parallel branches via parse-diagram.py + todo_deps). Runtime skill; pairs with sergio-sisternes-epam/genesis at design time."
+version: 0.5.0
+description: "diagram-driven-execution. Turn a mermaid diagram into a tracked execution plan. Two execution modes (both use SQL todos + todo_deps, both produce the Copilot visual plan widget): simple (mode=simple, up to 15 nodes, agent reads diagram from context, no parse script, no gates/loops) and advanced (default mode=advanced, gates with multi-way routing and escalation, bounded loops via pre-expansion, deterministic parse via parse-diagram.py). Deprecated aliases: store=plan routes to simple, store=sql routes to advanced. Runtime skill; pairs with sergio-sisternes-epam/genesis at design time."
 author: Sergio Sisternes <sergio_sisternes@epam.com>
 license: Apache-2.0
 homepage: https://github.com/sergio-sisternes-epam/dde
