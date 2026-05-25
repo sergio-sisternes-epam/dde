@@ -106,13 +106,47 @@ stateDiagram-v2
     skipped --> [*]
 ```
 
-- `pending`: ready when all deps are `done` or `skipped`.
-- `in_progress`: agent is executing this node.
-- `done`: terminal success. Re-query to discover newly-ready nodes.
-- `blocked`: terminal failure. Requires B10 HUMAN CHECKPOINT.
-- `skipped`: gate routed execution away from this branch. Resolves deps.
-- `waiting`: escalation sent to parent session or human. Node resumes
-  when the operator or parent session responds with a decision.
+<skill define="interface" name="dde.node.pending">
+  Entry: node created at plan-init with no unresolved deps, or all deps
+  subsequently resolved. No SQL write operations permitted in this state.
+  Exit: all predecessor todos are `done` or `skipped` → transition to
+  `in_progress`.
+</skill>
+
+<skill define="interface" name="dde.node.in_progress">
+  Entry: dep-aware ready-node query returns this node. Agent begins
+  executing the node body (delegates to subagent, tool, or calling thread).
+  Only one status transition write is permitted per node per turn.
+  Exit (one of): success → `done`; failure → `blocked`;
+  gate routed away → `skipped`; escalation sent → `waiting`.
+</skill>
+
+<skill define="interface" name="dde.node.done">
+  Terminal success state. Resolves deps: all successor nodes whose only
+  remaining unresolved dep was this node become ready. Re-query the
+  ready-node cursor after every `done` write.
+  Illegal exits: none — `done` is terminal.
+</skill>
+
+<skill define="interface" name="dde.node.blocked">
+  Terminal failure state. Does not resolve deps — successor nodes remain
+  blocked behind this node. Requires B10 HUMAN CHECKPOINT immediately.
+  Illegal exits: none without explicit operator direction.
+</skill>
+
+<skill define="interface" name="dde.node.skipped">
+  Gate routed execution away from this branch. Resolves deps identically
+  to `done` so downstream nodes on other branches can proceed.
+  Illegal exits: none — `skipped` is terminal.
+</skill>
+
+<skill define="interface" name="dde.node.waiting">
+  Escalation checkpoint. An unresolvable gate condition triggered
+  `send_session_message` to the parent session, or a B10 was emitted.
+  Does not resolve deps until operator or parent session resumes.
+  Exit: operator or parent session responds with a branch decision →
+  re-enter `in_progress` on the chosen branch.
+</skill>
 
 Illegal transitions: `pending → done`, `done → pending`,
 `blocked → in_progress` (without operator direction),
