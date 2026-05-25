@@ -45,10 +45,10 @@ no SQL. Use for linear workflows ≤10 nodes.
 See `skills/diagram-driven-execution/SKILL.md` for the full process,
 `skills/diagram-driven-execution/references/diagram-grammar.md` for
 the bounded grammar,
-`skills/diagram-driven-execution/references/transition-protocol.md`
-for the SQL mode lifecycle rules, and
-`skills/diagram-driven-execution/references/plan-store-protocol.md`
-for the plan.md mode lifecycle rules.
+`skills/diagram-driven-execution/references/advanced-protocol.md`
+for the advanced mode lifecycle rules, and
+`skills/diagram-driven-execution/references/simple-protocol.md`
+for the simple mode lifecycle rules.
 
 ## Paired with `sergio-sisternes-epam/genesis`
 

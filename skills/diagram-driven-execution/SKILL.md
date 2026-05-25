@@ -74,7 +74,7 @@ description: >-
   Nodes: dde.grammar-check (assert no gate/loop, count<=15),
   dde.plan-init (context extraction), dde.execution-loop (rowid order
   as tiebreak), dde.verify. Does not instantiate dde.gate-router or
-  dde.loop-expander. Protocol: references/plan-store-protocol.md
+  dde.loop-expander. Protocol: references/simple-protocol.md
 </skill>
 
 <skill define="implementation" name="dde-advanced" implements="diagram-driven-execution">
@@ -83,7 +83,7 @@ description: >-
   (pre-expand at init), dde.plan-init (todos + todo_deps + dde_gates),
   dde.execution-loop (skipped counts as resolved; delegates to
   dde.gate-router on gate nodes), dde.verify. Protocol:
-  references/transition-protocol.md
+  references/advanced-protocol.md
 </skill>
 
 ---
@@ -92,8 +92,8 @@ description: >-
 
 - [Driver persona](agents/diagram-driver.agent.md)
 - [Grammar rule](references/diagram-grammar.md)
-- [Advanced mode protocol](references/transition-protocol.md)
-- [Simple mode protocol](references/plan-store-protocol.md)
+- [Advanced mode protocol](references/advanced-protocol.md)
+- [Simple mode protocol](references/simple-protocol.md)
 
 This skill turns a mermaid diagram into a **tracked execution plan**.
 Two AML implementations share the same `todos` + `todo_deps` SQL store
@@ -219,8 +219,8 @@ plan-init only). Simple mode: no external tools. Parser uses stdlib only.
 - `scripts/parse-diagram.py` — deterministic mermaid parser (stdlib-only)
 - `agents/diagram-driver.agent.md` — process-execution persona
 - `references/diagram-grammar.md` — v1 supported grammar subset
-- `references/transition-protocol.md` — dde-advanced contract
-- `references/plan-store-protocol.md` — dde-simple contract
+- `references/advanced-protocol.md` — dde-advanced contract
+- `references/simple-protocol.md` — dde-simple contract
 
 ## Limitations (declared)
 

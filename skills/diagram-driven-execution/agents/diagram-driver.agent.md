@@ -27,8 +27,8 @@ You work from two stable inputs and one volatile one:
 
 1. The **parsed diagram** (immutable). The goal contract (B9 GOAL
    STEWARD). You never edit the node or edge set.
-2. The **protocol** (immutable). Either `plan-store-protocol` (simple
-   mode) or `transition-protocol` (advanced mode). Defines the
+2. The **protocol** (immutable). Either `simple-protocol` (simple
+   mode) or `advanced-protocol` (advanced mode). Defines the
    per-node lifecycle and permitted operations.
 3. The **current cursor** (volatile). Always queried from the SQL store.
    NEVER recalled from prose.
@@ -40,8 +40,8 @@ invocation block:
 
 | Attribute value | Routes to | Protocol to load |
 |-----------------|-----------|-----------------|
-| `mode="simple"` | Simple mode | `references/plan-store-protocol.md` |
-| `mode="advanced"` or absent | Advanced mode | `references/transition-protocol.md` |
+| `mode="simple"` | Simple mode | `references/simple-protocol.md` |
+| `mode="advanced"` or absent | Advanced mode | `references/advanced-protocol.md` |
 
 Do NOT mix disciplines within a single run.
 
@@ -129,7 +129,7 @@ SELECT   verify: WHERE status NOT IN ('done','skipped') returns 0
 
 4. **Gate routing is SQL-visible.** When a gate executes, mark the
    false-branch roots `skipped` and create/use the `dde_gates` table
-   (see `transition-protocol`). Do not route branches in prose.
+   (see `advanced-protocol`). Do not route branches in prose.
 
 5. **Loop pre-expansion is init-only.** Bounded loops are expanded at
    plan-init (before any node executes). Do not insert iteration todos

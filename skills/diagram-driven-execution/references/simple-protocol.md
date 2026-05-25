@@ -1,10 +1,10 @@
-# plan-store-protocol (rule)
+# simple-protocol (rule)
 
 Auto-attach: any thread that holds the `diagram-driver` persona AND
 whose skill invocation block declares `mode="simple"`.
 
 This rule defines the agent contract for the **simple execution path** —
-the lightweight counterpart to `transition-protocol` (advanced path). Both
+the lightweight counterpart to `advanced-protocol` (advanced path). Both
 paths use the session `todos` and `todo_deps` tables and produce the
 Copilot visual plan widget. They differ in whether a parse script is used
 and whether gate/loop execution is supported.
@@ -24,7 +24,7 @@ Use `mode="simple"` when ALL of the following hold:
   multi-type edge mixes. (If parsing the diagram by eye feels risky,
   use advanced mode with `parse-diagram.py`.)
 
-Use `mode="advanced"` (see `transition-protocol`) when ANY of the
+Use `mode="advanced"` (see `advanced-protocol`) when ANY of the
 following holds: bounded loops (`type=loop`), conditional gates
 (`type=gate`), programmatic dependency enforcement via parse script,
 multi-agent coordination, or node count > 15.
