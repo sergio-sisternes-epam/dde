@@ -5,37 +5,40 @@ description: >-
   LR/TD/RL/BT, or stateDiagram-v2) that represents a process the
   agent must follow step-by-step, and the user wants deterministic
   execution tracking rather than free-form interpretation. Supports
-  two tracking modes: SQL store (default; for DAGs, parallel branches,
-  strict completion gates) via parse-diagram.py + todos/todo_deps; and
-  plan.md store (declare store="plan" in the skill invocation block;
-  for linear workflows of 10 nodes or fewer, single agent, reduced
-  overhead). Activate on: "follow this diagram", "execute this
-  workflow", "enforce these steps", "track against this state machine",
-  "drive this process", "run this mermaid as a plan", "step me through
-  this flowchart", "use plan.md for this workflow", or any moment a
-  diagram is the source of truth for a procedure. Does NOT execute
-  node bodies; node work is delegated to subagents, tools, or the
-  calling thread.
+  two tracking modes via the session SQL todos table (both produce
+  the Copilot visual plan widget): SQL lite (declare store="plan";
+  linear workflows of 10 nodes or fewer, no dependency graph, reduced
+  overhead) and full SQL (default store="sql"; DAGs, parallel branches,
+  strict completion gates via parse-diagram.py + todo_deps). Activate
+  on: "follow this diagram", "execute this workflow", "enforce these
+  steps", "track against this state machine", "drive this process",
+  "run this mermaid as a plan", "step me through this flowchart", or
+  any moment a diagram is the source of truth for a procedure. Does
+  NOT execute node bodies; node work is delegated to subagents, tools,
+  or the calling thread.
 ---
 
 # diagram-driven-execution
 
 - [Driver persona](agents/diagram-driver.agent.md)
 - [Grammar rule](references/diagram-grammar.md)
-- [Transition protocol — SQL mode](references/transition-protocol.md)
-- [Plan-store protocol — plan.md mode](references/plan-store-protocol.md)
+- [Transition protocol — SQL full mode](references/transition-protocol.md)
+- [Plan-store protocol — SQL lite mode](references/plan-store-protocol.md)
 
 This skill turns a mermaid diagram into a **tracked execution plan**.
-The diagram is the process contract. Two tracking stores are supported,
-declared with `store=` in the skill invocation block:
+The diagram is the process contract. Two tracking modes are supported,
+both using the session SQL `todos` table (both produce the Copilot
+visual plan widget):
 
-- **`store="sql"` (default):** uses the session's `todos` and
-  `todo_deps` tables. A deterministic script (`parse-diagram.py`)
-  extracts nodes and edges; the agent loads them into SQL and drives
-  execution by querying for ready nodes one at a time.
-- **`store="plan"`:** uses the session's `plan.md` slot. The agent
-  reads the diagram from context, writes a checklist to plan.md, and
-  updates it per node. No subprocess, no SQL. For linear flows only.
+- **`store="sql"` (default):** uses `todos` + `todo_deps`. A
+  deterministic script (`parse-diagram.py`) extracts nodes and edges;
+  the agent loads them into SQL and drives execution by querying for
+  ready nodes via dependency-aware query. Supports DAGs and parallel
+  branches.
+- **`store="plan"` (SQL lite):** uses `todos` only — no `todo_deps`,
+  no parse script. The agent reads the diagram from context, INSERTs
+  todos in linear order, and drives execution by querying the next
+  pending row. For strictly linear flows only.
 
 ## Embedding DDE in a skill (AML block)
 
@@ -43,11 +46,11 @@ Declare DDE as a dependency in your skill's invocation block to
 enforce diagram-driven tracking on a specific workflow:
 
 ```xml
-<!-- SQL mode: DAGs, parallel branches, strict completion gates -->
-<skill ref="dde" role="enforcement" store="sql">
-
-<!-- plan.md mode: linear workflows, ≤10 nodes, single agent -->
+<!-- SQL lite mode: linear workflows, ≤10 nodes, single agent, no todo_deps -->
 <skill ref="dde" role="enforcement" store="plan">
+
+<!-- SQL full mode: DAGs, parallel branches, strict completion gates -->
+<skill ref="dde" role="enforcement" store="sql">
 ```
 
 The `store=` attribute is the B2 CONDITIONAL DISPATCH selector that
@@ -80,19 +83,19 @@ isolation. Those are not execution tasks.
 
 ## Store modes
 
-| | `store="sql"` (default) | `store="plan"` |
+| | `store="sql"` (default) | `store="plan"` (SQL lite) |
 |---|---|---|
-| **State store** | `todos` + `todo_deps` SQL tables | session `plan.md` slot |
+| **State store** | `todos` + `todo_deps` | `todos` only |
+| **Visual plan widget** | yes | yes |
 | **Parser** | `parse-diagram.py` subprocess | in-context diagram read |
 | **Graph type** | DAGs + linear | linear only (≤10 nodes) |
-| **Parallelism** | yes (ready-set query) | no (first-unchecked) |
+| **Parallelism** | yes (ready-set query) | no (next pending row) |
 | **Multi-agent** | yes | no (single agent) |
-| **Completion gate** | deterministic SQL query | human-readable checklist |
-| **Enforcement** | query-grounded | discipline-based only |
-| **Tracking calls** | ~20 for 7-node flow | ~8 for 7-node flow |
+| **Completion gate** | `SELECT WHERE status != 'done'` | `SELECT WHERE status != 'done'` |
+| **Tracking overhead** | ~28 calls for 7-node flow | ~23 calls for 7-node flow |
 
-Read `references/transition-protocol.md` for SQL mode.
-Read `references/plan-store-protocol.md` for plan.md mode.
+Read `references/transition-protocol.md` for SQL full mode.
+Read `references/plan-store-protocol.md` for SQL lite mode.
 
 ## Applicability (when dde is worth its overhead)
 
@@ -136,10 +139,12 @@ Is the workflow strictly linear (no branches)?
 ├── NO  → store="sql"  (DAG topology requires SQL dependency tracking)
 └── YES → Does it have ≤10 nodes AND run in a single agent?
            ├── NO  → store="sql"
-           └── YES → Do you need a programmatic all-done gate?
-                      ├── YES → store="sql"
-                      └── NO  → store="plan"  ← lightweight path
+           └── YES → store="plan"  ← SQL lite path (no parse script, no todo_deps)
 ```
+
+Both modes produce the Copilot visual plan widget. Use `store="sql"`
+when you need dependency-aware execution order (parallel branches,
+fan-out). Use `store="plan"` when the order is trivially left-to-right.
 
 The mandate genesis applies to its step 7b is correctly scoped
 because genesis output is always a multi-module DAG with
@@ -154,18 +159,19 @@ case by case against this section, not by analogy to genesis.
 flowchart TD
     Start([operator invokes DDE\nwith diagram]) --> Gate{store=?}
 
-    Gate -->|plan| P1[read diagram from context\nverify linear]
-    P1 --> P2[create plan.md checklist\nB4 PLAN MEMENTO]
-    P2 --> P3[re-read plan.md\nB8 ATTENTION ANCHOR]
-    P3 --> P4[execute first unchecked node]
-    P4 --> P5[edit plan.md\nmark node done]
-    P5 --> P6{all nodes\nchecked?}
-    P6 -->|no| P3
-    P6 -->|yes| Done([done])
+    Gate -->|plan - SQL lite| P1[read diagram from context\nverify linear]
+    P1 --> P2[INSERT todos in order\nno todo_deps - visual plan widget]
+    P2 --> P3[SELECT next pending todo\nB8 ATTENTION ANCHOR]
+    P3 --> P4[UPDATE in_progress\nexecute node]
+    P4 --> P5[UPDATE done]
+    P5 --> P6{any pending\nnodes?}
+    P6 -->|no| P7[SELECT verify\nall done?]
+    P6 -->|yes| P3
+    P7 ==> Done([done])
 
-    Gate -->|sql default| S1[write diagram to temp file\nrun parse-diagram.py]
+    Gate -->|sql default - full| S1[write diagram to temp file\nrun parse-diagram.py]
     S1 ==> S2[read JSON output\ninsert todos + todo_deps]
-    S2 --> S3[query ready nodes SQL]
+    S2 --> S3[query ready nodes SQL\ndep-aware]
     S3 --> S4[pick one ready node\nexecute it]
     S4 --> S5[mark done SQL]
     S5 --> S6{any pending\nnodes?}
@@ -287,19 +293,22 @@ WHERE id LIKE '<design_id>::%' GROUP BY status;
 All nodes should show status `done`. If any show `blocked` or
 `pending`, the design is incomplete — emit B10.
 
-### store="plan" — step-by-step
+### store="plan" — step-by-step (SQL lite)
 
 Read `references/plan-store-protocol.md` when `store="plan"` is
 declared in the skill invocation block.
 
+**Summary:** detect linearity → INSERT todos in order (no
+`todo_deps`) → loop: SELECT next pending + UPDATE in_progress +
+execute + UPDATE done → SELECT verify all done.
+
 ## Platform and runtime
 
-This skill targets `common-only`. For SQL mode, the only external
-dependency is Python 3 on PATH, used ONCE at the start to parse
-the diagram. All subsequent SQL state tracking uses the session's
-native store — no Python in the execution loop. For plan.md mode,
-no external tools are required; the agent uses the session's
-built-in create/edit file operations.
+This skill targets `common-only`. For SQL full mode, the only
+external dependency is Python 3 on PATH, used ONCE at the start to
+parse the diagram. For SQL lite mode (`store="plan"`), no external
+tools are required; the agent reads the diagram from context and uses
+SQL operations only.
 
 The parser uses only the Python standard library; no pip install,
 no external sqlite3 binary.
@@ -311,8 +320,8 @@ no external sqlite3 binary.
   Self-contained, stdlib-only.
 - `agents/diagram-driver.agent.md` — the process-execution lens.
 - `references/diagram-grammar.md` — the supported grammar subset.
-- `references/transition-protocol.md` — SQL mode agent contract.
-- `references/plan-store-protocol.md` — plan.md mode agent contract.
+- `references/transition-protocol.md` — SQL full mode agent contract.
+- `references/plan-store-protocol.md` — SQL lite mode agent contract.
 
 ## Composition
 
@@ -330,7 +339,8 @@ for the peer recipe.
   to bypass the transition protocol. The persona + this skill's
   discipline are the only enforcement. There is no script-level
   gate preventing illegal transitions in either store mode.
-- plan.md mode does NOT support DAGs. Branches trigger B10.
+- SQL lite mode (`store="plan"`) does NOT support DAGs. Branches
+  trigger B10 before any todos are inserted.
 - v1 grammar excludes subgraphs, composite states, classDefs,
   styling, click handlers (see `references/diagram-grammar.md`).
 - Cycles are rejected in all diagram types (flowchart and

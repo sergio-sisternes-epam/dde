@@ -29,13 +29,13 @@
     {
       "id": "ce06-plan-store-linear",
       "prompt": "store=\"plan\" declared. Here is the workflow:\n```mermaid\nflowchart LR\n  A[Open ticket] --> B[Reproduce] --> C[Fix] --> D[Test] --> E[Close]\n```\nExecute it.",
-      "expected_with_skill": "Agent detects store=\"plan\", verifies diagram is linear (single chain). Creates plan.md with 5 unchecked items. Executes A through E in order: before each node re-reads plan.md, executes the work, then edits plan.md to mark the node [x] and appends to the log. Does NOT make any SQL calls for state tracking. Final read of plan.md confirms all items are [x].",
-      "expected_without_skill": "Agent narrates the steps in prose, may skip a step or merge two, no plan.md created, no systematic tracking."
+      "expected_with_skill": "Agent detects store=\"plan\" (SQL lite), verifies diagram is linear (single chain). INSERTs 5 todos in order with no todo_deps — the Copilot visual plan widget appears showing all nodes pending. Executes A through E in order: SELECT next pending todo (B8 anchor), UPDATE in_progress, execute work, UPDATE done. Does NOT run parse-diagram.py and does NOT write todo_deps rows. Final SELECT confirms all nodes done.",
+      "expected_without_skill": "Agent narrates the steps in prose, may skip a step or merge two, no SQL tracking, no systematic tracking."
     },
     {
       "id": "ce07-plan-store-rejects-dag",
       "prompt": "store=\"plan\" declared. Here is the workflow:\n```mermaid\nflowchart LR\n  A[Spec] --> B[Backend]\n  A --> C[Frontend]\n  B --> D[Integrate]\n  C --> D\n```\nExecute it.",
-      "expected_with_skill": "Agent detects store=\"plan\" and reads the diagram. Identifies that node A has two outgoing edges and node D has two incoming edges — the diagram is NOT linear. Emits B10 HUMAN CHECKPOINT before creating any plan.md, explaining the diagram has branches and recommending a switch to store=\"sql\". Does NOT proceed with plan.md execution.",
+      "expected_with_skill": "Agent detects store=\"plan\" (SQL lite) and reads the diagram. Identifies that node A has two outgoing edges and node D has two incoming edges — the diagram is NOT linear. Emits B10 HUMAN CHECKPOINT before inserting any todos, explaining the diagram has branches and recommending a switch to store=\"sql\". Does NOT insert any todos or write todo_deps.",
       "expected_without_skill": "Agent ignores the branching structure and either narrates a serial A→B→C→D order or attempts partial tracking without dependency awareness."
     },
     {
@@ -53,7 +53,7 @@
       {"query": "track against this process diagram", "split": "train"},
       {"query": "enforce these steps in order", "split": "train"},
       {"query": "run this mermaid as a plan", "split": "train"},
-      {"query": "use plan.md tracking for this workflow", "split": "val"},
+      {"query": "use lightweight SQL tracking for this workflow", "split": "val"},
       {"query": "lightweight execution, no SQL overhead please", "split": "val"},
       {"query": "store=plan mode for this diagram", "split": "train"},
       {"query": "follow this flowchart with minimal tracking", "split": "train"},
