@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Regression tests for parse-diagram.py chained-edge handling (issue #2)
-and SQL-native integration tests for the lite-mode architecture.
+and SQL integration tests for the advanced mode (dde-advanced) architecture.
 
 Runs the parse-diagram.py script as a subprocess against the repro cases
 from the issue plus a couple of extra shapes. No external test runner is
@@ -158,7 +158,7 @@ def test_unterminated_edge_label_rejected() -> None:
 
 
 def test_sql_native_integration() -> None:
-    """End-to-end lite-mode test: parse chained diagram, load into SQLite
+    """End-to-end advanced mode test: parse chained diagram, load into SQLite
     todos/todo_deps, query ready nodes, mark done in order, verify completion.
     Replaces the former script-based integration test."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -166,7 +166,7 @@ def test_sql_native_integration() -> None:
         diagram = tmp_path / "d.mmd"
         diagram.write_text("flowchart LR\n  a[A] --> b[B] --> c[C]\n")
         r = subprocess.run(
-            [sys.executable, str(PARSE), "--input", str(diagram), "--design-id", "it-lite"],
+            [sys.executable, str(PARSE), "--input", str(diagram), "--design-id", "it-advanced"],
             capture_output=True, text=True,
         )
         assert_eq(r.returncode, 0, f"parse exit ({r.stderr})")
@@ -275,7 +275,7 @@ def test_design_id_validation() -> None:
 
 
 def test_state_diagram_cycle_rejected() -> None:
-    """Cycles in stateDiagram-v2 are now rejected (lite mode requires acyclic)."""
+    """Cycles in stateDiagram-v2 are rejected (v1 grammar requires acyclic graphs in all diagram types)."""
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "d.mmd"
         path.write_text("stateDiagram-v2\n  [*] --> A\n  A --> B\n  B --> A\n  B --> [*]\n")
