@@ -48,7 +48,7 @@ with the rejection message.
   - `A[Retry Body|type=loop|max_iter=3]`
   - Recognised keys:
     - `type` (`manual` | `subagent` | `tool` | `prompt` | `gate` | `loop`).
-      `gate` activates multi-way conditional routing (see transition-protocol).
+      `gate` activates multi-way conditional routing (see advanced-protocol).
       `loop` activates bounded pre-expansion; requires `max_iter`.
     - `model` (any string; consumed by the dispatcher for `subagent` nodes).
     - `max_iter` (positive integer; required on `type=loop` nodes; defines

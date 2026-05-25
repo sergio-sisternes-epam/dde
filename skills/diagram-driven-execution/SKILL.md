@@ -16,10 +16,10 @@ description: >-
   subagents, tools, or the calling thread.
 ---
 
-<!-- ═══════════════════════════════════════════════════════
+<!-- =========================================================
      AML INTERFACE DEFINITIONS
      Top-level capability contract and sub-capability nodes.
-     ═══════════════════════════════════════════════════════ -->
+     ========================================================= -->
 
 <skill define="interface" name="diagram-driven-execution">
   Execute a mermaid diagram step-by-step with deterministic SQL-backed
@@ -55,7 +55,7 @@ description: >-
 
 <skill define="interface" name="dde.loop-expander">
   Pre-expand a type=loop|max_iter=N node into N sequential iteration todos
-  at plan-init time. Wire predecessor → iter_1 → ... → iter_N → successor
+  at plan-init time. Wire predecessor -> iter_1 -> ... -> iter_N -> successor
   via todo_deps. No runtime plan mutation after expansion.
 </skill>
 
@@ -65,25 +65,25 @@ description: >-
   with the incomplete node list.
 </skill>
 
-<!-- ═══════════════════════════════════════════════════════
-     AML IMPLEMENTATION DEFINITIONS
-     ═══════════════════════════════════════════════════════ -->
+<!-- =========================================================
+     AML INTERFACE DEFINITIONS - MODE CONTRACTS
+     ========================================================= -->
 
-<skill define="implementation" name="dde-simple" implements="diagram-driven-execution">
+<skill define="interface" name="dde-simple" extends="diagram-driven-execution">
   Lightweight path. Agent reads diagram from context; no subprocess.
   Nodes: dde.grammar-check (assert no gate/loop, count<=15),
   dde.plan-init (context extraction), dde.execution-loop (rowid order
   as tiebreak), dde.verify. Does not instantiate dde.gate-router or
-  dde.loop-expander. Protocol: references/plan-store-protocol.md
+  dde.loop-expander. Protocol: references/simple-protocol.md
 </skill>
 
-<skill define="implementation" name="dde-advanced" implements="diagram-driven-execution">
+<skill define="interface" name="dde-advanced" extends="diagram-driven-execution">
   Full path. Deterministic parse via parse-diagram.py.
   Nodes: dde.grammar-check (parse-diagram.py), dde.loop-expander
   (pre-expand at init), dde.plan-init (todos + todo_deps + dde_gates),
   dde.execution-loop (skipped counts as resolved; delegates to
   dde.gate-router on gate nodes), dde.verify. Protocol:
-  references/transition-protocol.md
+  references/advanced-protocol.md
 </skill>
 
 ---
@@ -92,8 +92,8 @@ description: >-
 
 - [Driver persona](agents/diagram-driver.agent.md)
 - [Grammar rule](references/diagram-grammar.md)
-- [Advanced mode protocol](references/transition-protocol.md)
-- [Simple mode protocol](references/plan-store-protocol.md)
+- [Advanced mode protocol](references/advanced-protocol.md)
+- [Simple mode protocol](references/simple-protocol.md)
 
 This skill turns a mermaid diagram into a **tracked execution plan**.
 Two AML implementations share the same `todos` + `todo_deps` SQL store
@@ -102,7 +102,7 @@ and both produce the Copilot visual plan widget.
 ## Embedding DDE in a skill (AML invocation)
 
 ```xml
-<!-- Lightweight: ≤15 nodes, no gates/loops, no parse script -->
+<!-- Lightweight: <=15 nodes, no gates/loops, no parse script -->
 <skill impl="dde-simple" mode="simple" role="enforcement">
   <!-- mermaid diagram or reference -->
 </skill>
@@ -138,15 +138,15 @@ Reach for dde when: plan > 3 nodes, fan-out or parallelism, topological
 ordering matters, work spans sessions (B4/B8 re-grounding), or "done"
 must be a deterministic SQL gate rather than an LLM assertion.
 
-Skip dde for: single-node tasks, ≤3-step throwaway work, exploratory
+Skip dde for: single-node tasks, <=3-step throwaway work, exploratory
 work where steps aren't known upfront, advisory/Q&A turns.
 
 ### Which implementation?
 
 ```
-Has type=gate or type=loop?  →  dde-advanced
-Node count > 15 or complex mermaid syntax?  →  dde-advanced
-Otherwise  →  dde-simple
+Has type=gate or type=loop?  ->  dde-advanced
+Node count > 15 or complex mermaid syntax?  ->  dde-advanced
+Otherwise  ->  dde-simple
 ```
 
 ## Process
@@ -165,7 +165,7 @@ Otherwise  →  dde-simple
     </skill>
     <skill name="dde.execution-loop" policy="sequential">
       SELECT ready nodes (dep-aware, skipped=resolved), ORDER BY rowid.
-      Per node: UPDATE in_progress → execute body → UPDATE done or blocked.
+      Per node: UPDATE in_progress -> execute body -> UPDATE done or blocked.
       B10 on stuck state.
     </skill>
     <skill name="dde.verify">
@@ -193,7 +193,7 @@ Otherwise  →  dde-simple
     </skill>
     <skill name="dde.execution-loop" policy="sequential">
       SELECT ready nodes (skipped counts as resolved). Per node:
-      UPDATE in_progress → dispatch by type → UPDATE done or blocked.
+      UPDATE in_progress -> dispatch by type -> UPDATE done or blocked.
       <skill name="dde.gate-router" on-failure="halt">
         Read gate result from description JSON. Look up dde_gates for
         matching label. Mark non-matching branch roots skipped (walk
@@ -216,18 +216,18 @@ plan-init only). Simple mode: no external tools. Parser uses stdlib only.
 
 ## Bundled assets
 
-- `scripts/parse-diagram.py` — deterministic mermaid parser (stdlib-only)
-- `agents/diagram-driver.agent.md` — process-execution persona
-- `references/diagram-grammar.md` — v1 supported grammar subset
-- `references/transition-protocol.md` — dde-advanced contract
-- `references/plan-store-protocol.md` — dde-simple contract
+- `scripts/parse-diagram.py` - deterministic mermaid parser (stdlib-only)
+- `agents/diagram-driver.agent.md` - process-execution persona
+- `references/diagram-grammar.md` - v1 supported grammar subset
+- `references/advanced-protocol.md` - dde-advanced contract
+- `references/simple-protocol.md` - dde-simple contract
 
 ## Limitations (declared)
 
-- Discipline-based enforcement only — no script-level transition gate.
+- Discipline-based enforcement only - no script-level transition gate.
 - `dde-simple` rejects gate/loop nodes at grammar-check time (B10).
 - v1 grammar excludes subgraphs, composite states, classDefs, click
   handlers (see references/diagram-grammar.md).
 - Diagram cycles rejected. Loops expressed via type=loop|max_iter=N.
-- Re-planning is a B10 event — start a new design_id for a new diagram.
+- Re-planning is a B10 event - start a new design_id for a new diagram.
 - Condition-based loops (iterate until condition) not in v0.5.

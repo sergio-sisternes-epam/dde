@@ -1,4 +1,4 @@
-# transition-protocol (rule)
+# advanced-protocol (rule)
 
 Auto-attach: any thread that holds the `diagram-driver` persona AND
 whose skill invocation block declares `mode="advanced"`, OR when the
