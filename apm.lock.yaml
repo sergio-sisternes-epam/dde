@@ -1,0 +1,13 @@
+lockfile_version: '1'
+generated_at: '2026-05-25T13:08:42.576424+00:00'
+apm_version: 0.14.2
+dependencies:
+- repo_url: sergio-sisternes-epam/aml
+  host: github.com
+  resolved_commit: ee328ad9762b40e19e8ead4ba622a8cd2e3c29d0
+  resolved_ref: v0.2.0
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/aml-installation
+  - .agents/skills/aml-usage-guide
+  content_hash: sha256:76ee06aeb5211949fb73037c4622c428f7570382a8dbc41087fae919ea24b4c3
