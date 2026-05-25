@@ -17,6 +17,78 @@ description: >-
   subagents, tools, or the calling thread.
 ---
 
+<!-- ═══════════════════════════════════════════════════════
+     AML INTERFACE DEFINITIONS
+     Top-level capability contract and sub-capability nodes.
+     ═══════════════════════════════════════════════════════ -->
+
+<skill define="interface" name="diagram-driven-execution">
+  Execute a mermaid diagram step-by-step with deterministic SQL-backed
+  tracking. The diagram is the process contract. The driver enforces
+  transition order and halts on stuck states. Node bodies are delegated;
+  this interface owns cursor management only.
+</skill>
+
+<skill define="interface" name="dde.grammar-check">
+  Validate the operator's mermaid diagram against the supported v1 grammar
+  (references/diagram-grammar.md). Reject loudly with line/column
+  diagnostics on any unsupported syntax. In simple mode: also assert
+  absence of type=gate and type=loop nodes, and node count <= 15.
+</skill>
+
+<skill define="interface" name="dde.plan-init">
+  Initialise the execution plan in the session SQL store. INSERT one todos
+  row per diagram node and one todo_deps row per edge. Check for design_id
+  collisions before inserting. The node list is frozen after this step.
+</skill>
+
+<skill define="interface" name="dde.execution-loop">
+  Drive diagram nodes to completion. Each turn: query ready nodes (pending
+  with all deps done or skipped), pick one, mark in_progress, execute body,
+  mark done or blocked. Repeat until no ready nodes remain or stuck state.
+</skill>
+
+<skill define="interface" name="dde.gate-router">
+  Evaluate a gate node's condition and route execution. Mark false-branch
+  root nodes as skipped (resolving their deps for downstream nodes). On no
+  matching branch: escalate to parent session if available, else emit B10.
+</skill>
+
+<skill define="interface" name="dde.loop-expander">
+  Pre-expand a type=loop|max_iter=N node into N sequential iteration todos
+  at plan-init time. Wire predecessor → iter_1 → ... → iter_N → successor
+  via todo_deps. No runtime plan mutation after expansion.
+</skill>
+
+<skill define="interface" name="dde.verify">
+  Confirm all plan nodes have reached a terminal status. Query for any rows
+  not in (done, skipped); zero rows = complete. Non-zero rows emit B10
+  with the incomplete node list.
+</skill>
+
+<!-- ═══════════════════════════════════════════════════════
+     AML IMPLEMENTATION DEFINITIONS
+     ═══════════════════════════════════════════════════════ -->
+
+<skill define="implementation" name="dde-simple" implements="diagram-driven-execution">
+  Lightweight path. Agent reads diagram from context; no subprocess.
+  Nodes: dde.grammar-check (assert no gate/loop, count<=15),
+  dde.plan-init (context extraction), dde.execution-loop (rowid order
+  as tiebreak), dde.verify. Does not instantiate dde.gate-router or
+  dde.loop-expander. Protocol: references/plan-store-protocol.md
+</skill>
+
+<skill define="implementation" name="dde-advanced" implements="diagram-driven-execution">
+  Full path. Deterministic parse via parse-diagram.py.
+  Nodes: dde.grammar-check (parse-diagram.py), dde.loop-expander
+  (pre-expand at init), dde.plan-init (todos + todo_deps + dde_gates),
+  dde.execution-loop (skipped counts as resolved; delegates to
+  dde.gate-router on gate nodes), dde.verify. Protocol:
+  references/transition-protocol.md
+</skill>
+
+---
+
 # diagram-driven-execution
 
 - [Driver persona](agents/diagram-driver.agent.md)
@@ -25,272 +97,140 @@ description: >-
 - [Simple mode protocol](references/plan-store-protocol.md)
 
 This skill turns a mermaid diagram into a **tracked execution plan**.
-The diagram is the process contract. Two execution modes are supported,
-both using the session SQL `todos` table (both produce the Copilot visual
-plan widget):
+Two AML implementations share the same `todos` + `todo_deps` SQL store
+and both produce the Copilot visual plan widget.
 
-- **`mode="advanced"` (default):** uses `todos` + `todo_deps`. A
-  deterministic script (`parse-diagram.py`) extracts nodes and edges;
-  the agent loads them into SQL and drives execution by querying for ready
-  nodes via dependency-aware query. Supports DAGs, parallel branches,
-  conditional gates with multi-way routing and escalation, and bounded
-  loops via pre-expansion.
-- **`mode="simple"` (lightweight):** uses `todos` + `todo_deps`. The
-  agent reads the diagram from context, INSERTs todos and deps, and
-  drives execution via the ready-node query. No parse script. No gates
-  or loops. For flows ≤ 15 nodes that do not require gate/loop logic.
+Deprecated aliases: `store="plan"` → `dde-simple`; `store="sql"` → `dde-advanced`.
 
-Deprecated aliases: `store="plan"` routes to simple; `store="sql"` routes
-to advanced. Accept them silently and apply the correct mode discipline.
-
-## Embedding DDE in a skill (AML block)
-
-Declare DDE as a dependency in your skill's invocation block to enforce
-diagram-driven tracking on a specific workflow:
+## Embedding DDE in a skill (AML invocation)
 
 ```xml
-<!-- Simple mode: small DAGs or linear flows, ≤15 nodes, no gates/loops -->
-<skill ref="dde" role="enforcement" mode="simple">
+<!-- Lightweight: ≤15 nodes, no gates/loops, no parse script -->
+<skill impl="dde-simple" mode="simple" role="enforcement">
+  <!-- mermaid diagram or reference -->
+</skill>
 
-<!-- Advanced mode: gates, loops, parallel branches, deterministic parse -->
-<skill ref="dde" role="enforcement" mode="advanced">
+<!-- Full: gates, loops, parallel branches, deterministic parse -->
+<skill impl="dde-advanced" mode="advanced" role="enforcement">
+  <!-- mermaid diagram or reference -->
+</skill>
+
+<!-- Delegate the entire run to a subagent -->
+<agent name="diagram-driver" mode="sync">
+  <skill impl="dde-advanced" mode="advanced">
+    flowchart LR
+      A[Fetch] --> B[Transform] --> C[Load]
+  </skill>
+</agent>
 ```
-
-The `mode=` attribute is the B2 CONDITIONAL DISPATCH selector that the
-driver persona reads at the start of each run. If omitted, advanced mode
-is the default.
-
-## When to activate
-
-- The operator hands you a flowchart or state diagram and expects the
-  steps to be executed in order.
-- The operator says any of: "follow this diagram", "drive this workflow",
-  "enforce these steps", "step me through", "track this state machine".
-- You are about to execute a multi-step process and want dependency-aware
-  transition tracking instead of free-form narration.
-
-Do NOT activate for: drawing diagrams, explaining diagrams, rendering or
-pretty-printing mermaid, checking diagram syntax in isolation.
-
-## What this skill does NOT do
-
-- It does not implement node bodies. Each node's work is delegated to a
-  subagent, a tool, or this thread's own prompt — chosen via the node's
-  `type=` annotation (see grammar rule).
-- It does not invent diagrams. If you have a process described in prose,
-  ask the operator for the diagram first.
-- It does not interpret intent. If a node label is ambiguous, the driver
-  persona halts to a human checkpoint.
 
 ## Execution modes
 
-| | `mode="simple"` | `mode="advanced"` (default) |
+| | `dde-simple` | `dde-advanced` (default) |
 |---|---|---|
 | **Visual plan widget** | yes | yes |
-| **State store** | `todos` + `todo_deps` | `todos` + `todo_deps` |
-| **Parser** | agent reads from context | `parse-diagram.py` subprocess |
-| **Graph type** | linear or small DAG (≤15 nodes) | any DAG |
-| **Gates** | no (B10 if detected) | yes — multi-way + escalation |
-| **Loops** | no (B10 if detected) | yes — bounded pre-expansion |
-| **Multi-agent** | single agent | yes |
+| **Parser** | agent reads context | `parse-diagram.py` subprocess |
+| **Gates** | B10 if detected | multi-way + escalation |
+| **Loops** | B10 if detected | bounded pre-expansion |
+| **Multi-agent** | no | yes |
 | **Token cost** | lower | higher |
 
-Read `references/plan-store-protocol.md` for simple mode.
-Read `references/transition-protocol.md` for advanced mode.
+## When to activate
 
-## Applicability (when dde is worth its overhead)
+Reach for dde when: plan > 3 nodes, fan-out or parallelism, topological
+ordering matters, work spans sessions (B4/B8 re-grounding), or "done"
+must be a deterministic SQL gate rather than an LLM assertion.
 
-dde adds value by replacing free-form todo mutation with a
-diagram-grounded, queryable execution record. That ceremony is
-load-bearing for some workloads and pure overhead for others.
-Reach for dde when AT LEAST ONE holds:
+Skip dde for: single-node tasks, ≤3-step throwaway work, exploratory
+work where steps aren't known upfront, advisory/Q&A turns.
 
-- The plan has more than ~3 nodes.
-- Any fan-out, parallelism, or multiple writers touch the same plan.
-- Topological ordering matters (drafting in the wrong order costs rework).
-- The work spans sessions or threads and must re-ground itself on resume
-  (B4 PLAN MEMENTO / B8 ATTENTION ANCHOR).
-- "Done" must be a deterministic gate (SQL completion query), not an
-  LLM assertion.
-- The workflow contains conditional branches (use advanced) or known
-  repeated steps (use advanced with `type=loop|max_iter=N`).
-
-Do NOT reach for dde when ANY of the following describes the work:
-
-- Single-node task ("fix this typo", "bump this version"). No DAG;
-  authoring a diagram is pure ceremony.
-- Strictly linear, short (≤3 steps), throwaway work. A plain todo list
-  does the same job with less ceremony.
-- Exploratory or discovery work where steps are not known in advance.
-  dde requires the diagram up front.
-- Advisory or conversational turns with no execution to gate.
-- REPL-style iteration where the plan churns every turn.
-
-Rule of thumb: if a plain `todos` list covers the job, skip dde.
-If you need a dependency-ordered, resumable, deterministically completable
-plan — with or without gates and loops — use dde.
-
-### Decision matrix: which mode to pick
+### Which implementation?
 
 ```
-Does the workflow have gates (type=gate) or loops (type=loop)?
-├── YES → mode="advanced"
-└── NO  → Is the node count ≤15 and mermaid syntax standard?
-           ├── NO  → mode="advanced" (parse script handles complex syntax)
-           └── YES → mode="simple"  ← lighter, no parse script
+Has type=gate or type=loop?  →  dde-advanced
+Node count > 15 or complex mermaid syntax?  →  dde-advanced
+Otherwise  →  dde-simple
 ```
-
-Both modes produce the Copilot visual plan widget with dependency tree
-nesting. Use `mode="advanced"` when you need gate routing, loop
-pre-expansion, or a parse script for complex mermaid syntax.
 
 ## Process
 
-```mermaid
-flowchart TD
-    Start([operator invokes DDE\nwith diagram]) --> Gate{mode=?}
+### dde-simple execution
 
-    Gate -->|simple| P1[read diagram from context\nextract nodes + edges]
-    P1 --> P2[INSERT todos\nINSERT todo_deps\nvisual plan widget]
-    P2 --> P3[SELECT ready nodes\ndep-aware query]
-    P3 --> P4[UPDATE in_progress\nexecute node]
-    P4 --> P5[UPDATE done]
-    P5 --> P6{any pending\nnodes?}
-    P6 -->|yes| P3
-    P6 -->|no| P7[SELECT verify\nall done?]
-    P7 ==> Done([done])
+<agent name="diagram-driver" mode="sync">
+  <tool allow="sql">
+    <skill name="dde.grammar-check">
+      Read diagram from context. Assert no type=gate or type=loop nodes.
+      Assert node count <= 15. Emit B10 on violation before any SQL writes.
+    </skill>
+    <skill name="dde.plan-init">
+      Extract nodes and edges from context. INSERT todos + todo_deps in
+      one batch. design_id collision check first.
+    </skill>
+    <skill name="dde.execution-loop" policy="sequential">
+      SELECT ready nodes (dep-aware, skipped=resolved), ORDER BY rowid.
+      Per node: UPDATE in_progress → execute body → UPDATE done or blocked.
+      B10 on stuck state.
+    </skill>
+    <skill name="dde.verify">
+      SELECT WHERE status NOT IN ('done','skipped'). Zero rows = complete.
+    </skill>
+  </tool>
+</agent>
 
-    Gate -->|advanced default| S1[write diagram to temp file\nrun parse-diagram.py]
-    S1 ==> S2[read JSON output\nINSERT todos + todo_deps\n+ dde_gates if gates present]
-    S2 --> S3[SELECT ready nodes\ndep-aware query\nskipped counts as resolved]
-    S3 --> S4[pick one ready node\nexecute it]
-    S4 --> S5{node type?}
-    S5 -->|gate| S6[route branches\nmark false branches skipped\nor escalate if no match]
-    S5 -->|loop iter| S7[execute iteration body]
-    S5 -->|normal| S8[mark done SQL]
-    S6 --> S8
-    S7 --> S8
-    S8 --> S9{any pending\nnodes?}
-    S9 -->|yes| S3
-    S9 -->|no| S10[SELECT verify\nall done or skipped?]
-    S10 ==> Done
-```
+### dde-advanced execution
 
-`==>` edges carry deterministic tool output back into the LLM step
-(S7 DETERMINISTIC TOOL BRIDGE). `-->` edges are LLM-internal flow.
-
-### mode="simple" — step-by-step
-
-Read `references/plan-store-protocol.md` when `mode="simple"` is declared.
-
-**Summary:** read diagram from context, extract nodes and edges → INSERT
-todos + todo_deps in one call → loop: SELECT ready (dep-aware) + UPDATE
-in_progress + execute + UPDATE done → SELECT verify.
-
-### mode="advanced" — step-by-step
-
-Read `references/transition-protocol.md` when `mode="advanced"` is
-declared (or by default).
-
-#### Step 1 — parse the diagram
-
-Save the operator's mermaid to a file. Invoke:
-
-```
-python3 scripts/parse-diagram.py --input <file> [--design-id <id>]
-```
-
-Exit code 2 means the diagram falls outside the v1 grammar (see
-`references/diagram-grammar.md`); return the diagnostic to the operator
-and stop — do not patch.
-
-`design_id` must match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`.
-
-#### Step 2 — load the plan (SQL)
-
-Check for collisions:
-```sql
-SELECT id FROM todos WHERE id LIKE '<design_id>::%' LIMIT 1;
-```
-If rows exist, halt — the `design_id` is already in use.
-
-Insert one `todos` row per node and one `todo_deps` row per edge.
-If gate nodes are present, also create `dde_gates` and insert routing
-rows (see `references/transition-protocol.md`).
-
-If `type=loop|max_iter=N` nodes are present, pre-expand them into N
-iteration todos at this step — before execution begins.
-
-The `description` field MUST contain a JSON object with node metadata:
-```json
-{"dde": true, "design_id": "x", "node_id": "A", "label": "Backend",
- "type": "subagent", "model": "opus", "max_iter": 1, "shape": "rect"}
-```
-
-#### Steps 3-6 — query ready nodes, execute, mark done
-
-EVERY TURN, before deciding anything:
-```sql
-SELECT t.id, t.title FROM todos t
-WHERE t.id LIKE '<design_id>::%'
-  AND t.status = 'pending'
-  AND NOT EXISTS (
-    SELECT 1 FROM todo_deps td
-    JOIN todos dep ON td.depends_on = dep.id
-    WHERE td.todo_id = t.id
-      AND dep.status NOT IN ('done', 'skipped')
-  );
-```
-
-Pick one ready node, mark `in_progress`, execute (dispatch by `type`),
-mark `done` (or `blocked`). Gate nodes also update false-branch nodes
-to `skipped`. Loop iteration nodes execute the body with `{"iter": K}`
-in context.
-
-#### Step 7 — verify completion
-
-```sql
-SELECT status, COUNT(*) as cnt FROM todos
-WHERE id LIKE '<design_id>::%' GROUP BY status;
-```
-
-All nodes should show `done` or `skipped`. Anything else → B10.
+<agent name="diagram-driver" mode="sync">
+  <tool allow="sql,bash">
+    <skill name="dde.grammar-check">
+      python3 scripts/parse-diagram.py --input &lt;file&gt; [--design-id &lt;id&gt;]
+      Exit 2 = grammar violation; return diagnostic and stop.
+    </skill>
+    <skill name="dde.loop-expander">
+      Detect type=loop|max_iter=N nodes in parsed JSON. Pre-expand each
+      into N iteration todos chained via todo_deps. Wire predecessor and
+      successor edges. No further plan mutation permitted after this step.
+    </skill>
+    <skill name="dde.plan-init">
+      INSERT todos + todo_deps from parsed JSON. If gate nodes present:
+      CREATE TABLE IF NOT EXISTS dde_gates and INSERT routing rows.
+    </skill>
+    <skill name="dde.execution-loop" policy="sequential">
+      SELECT ready nodes (skipped counts as resolved). Per node:
+      UPDATE in_progress → dispatch by type → UPDATE done or blocked.
+      <skill name="dde.gate-router" on-failure="halt">
+        Read gate result from description JSON. Look up dde_gates for
+        matching label. Mark non-matching branch roots skipped (walk
+        todo_deps for subtrees). Mark gate done. On no match: escalate
+        via send_session_message if parent session present, else B10 +
+        mark gate waiting.
+      </skill>
+    </skill>
+    <skill name="dde.verify">
+      SELECT status, COUNT(*) GROUP BY status WHERE id LIKE design_id::.
+      All done or skipped = complete. Else B10.
+    </skill>
+  </tool>
+</agent>
 
 ## Platform and runtime
 
-This skill targets `common-only`. Advanced mode requires Python 3 on
-PATH, used once at the start to parse the diagram. Simple mode requires
-no external tools. The parser uses only the Python standard library.
+`common-only`. Advanced mode requires Python 3 on PATH (one call at
+plan-init only). Simple mode: no external tools. Parser uses stdlib only.
 
 ## Bundled assets
 
-- `scripts/parse-diagram.py` — deterministic mermaid parser (bounded
-  grammar; rejects unsupported syntax loudly). Stdlib-only.
-- `agents/diagram-driver.agent.md` — the process-execution lens.
-- `references/diagram-grammar.md` — the supported grammar subset.
-- `references/transition-protocol.md` — advanced mode agent contract.
-- `references/plan-store-protocol.md` — simple mode agent contract.
-
-## Composition
-
-This skill composes with **example 06** (TIERED SUPERVISED EXECUTION).
-Node `model=` annotations cross-reference into the per-spawn model-tier
-discipline: a "diagram with model weights" is both process-deterministic
-AND cost-aware.
+- `scripts/parse-diagram.py` — deterministic mermaid parser (stdlib-only)
+- `agents/diagram-driver.agent.md` — process-execution persona
+- `references/diagram-grammar.md` — v1 supported grammar subset
+- `references/transition-protocol.md` — dde-advanced contract
+- `references/plan-store-protocol.md` — dde-simple contract
 
 ## Limitations (declared)
 
-- DISCIPLINE-BASED ENFORCEMENT. No script-level gate prevents illegal
-  transitions. The persona and this skill's discipline are the only
-  enforcement.
-- Simple mode (`mode="simple"`) does NOT support gate or loop nodes.
-  Detection triggers B10 before any todos are inserted.
-- v1 grammar excludes subgraphs, composite states, classDefs, styling,
-  click handlers (see `references/diagram-grammar.md`).
-- Diagram cycles are rejected in all diagram types. Loop repetition is
-  expressed via `type=loop|max_iter=N` annotation (pre-expansion).
-- Re-planning is a B10 event by design. Mid-run diagram edits are
-  refused; the operator must start a new design with a new `design_id`.
-- Condition-based loops (iterate until condition met) are not supported
-  in v0.5. Use bounded loops (`max_iter=N`) or model iterations as
-  sequential nodes.
+- Discipline-based enforcement only — no script-level transition gate.
+- `dde-simple` rejects gate/loop nodes at grammar-check time (B10).
+- v1 grammar excludes subgraphs, composite states, classDefs, click
+  handlers (see references/diagram-grammar.md).
+- Diagram cycles rejected. Loops expressed via type=loop|max_iter=N.
+- Re-planning is a B10 event — start a new design_id for a new diagram.
+- Condition-based loops (iterate until condition) not in v0.5.
