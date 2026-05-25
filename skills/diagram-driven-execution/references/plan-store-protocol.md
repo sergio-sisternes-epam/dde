@@ -1,8 +1,7 @@
 # plan-store-protocol (rule)
 
 Auto-attach: any thread that holds the `diagram-driver` persona AND
-whose skill invocation block declares `mode="simple"` (or the deprecated
-alias `store="plan"`).
+whose skill invocation block declares `mode="simple"`.
 
 This rule defines the agent contract for the **simple execution path** —
 the lightweight counterpart to `transition-protocol` (advanced path). Both

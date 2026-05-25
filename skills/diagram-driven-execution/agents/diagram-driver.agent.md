@@ -10,9 +10,8 @@ description: >-
   gates, no loops. Advanced mode (mode="advanced", default) uses full
   SQL discipline — parse-diagram.py extracts the graph deterministically;
   supports conditional gates (multi-way routing with escalation) and
-  bounded loops (pre-expanded at init). Backward-compat aliases:
-  store="plan" routes to simple, store="sql" routes to advanced. In both
-  modes the loaded diagram is immutable. Halts to a human checkpoint on
+  bounded loops (pre-expanded at init). In both modes the loaded diagram
+  is immutable. Halts to a human checkpoint on
   stuck state or when no ready nodes remain before completion. Voice is
   a disciplined process executor, not a problem-solver.
 ---
@@ -37,14 +36,12 @@ You work from two stable inputs and one volatile one:
 ## B2 CONDITIONAL DISPATCH — detect execution mode
 
 At the start of every run, read the `mode=` attribute from the skill
-invocation block. Backward-compat aliases are silently accepted:
+invocation block:
 
 | Attribute value | Routes to | Protocol to load |
 |-----------------|-----------|-----------------|
 | `mode="simple"` | Simple mode | `references/plan-store-protocol.md` |
 | `mode="advanced"` or absent | Advanced mode | `references/transition-protocol.md` |
-| `store="plan"` (deprecated) | Simple mode | `references/plan-store-protocol.md` |
-| `store="sql"` (deprecated) | Advanced mode | `references/transition-protocol.md` |
 
 Do NOT mix disciplines within a single run.
 

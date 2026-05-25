@@ -8,8 +8,7 @@ description: >-
   from context, inserts todos+todo_deps, no parse script, no gates/loops)
   and advanced (default mode="advanced"; gates with multi-way routing and
   escalation, bounded loops via pre-expansion, deterministic parse via
-  parse-diagram.py). Backward compatible: store="plan" routes to simple,
-  store="sql" routes to advanced. Activate on: "follow this diagram",
+  parse-diagram.py). Activate on: "follow this diagram",
   "execute this workflow", "enforce these steps", "track against this state
   machine", "drive this process", "run this mermaid as a plan", "step me
   through this flowchart", or any moment a diagram is the source of truth
@@ -99,8 +98,6 @@ description: >-
 This skill turns a mermaid diagram into a **tracked execution plan**.
 Two AML implementations share the same `todos` + `todo_deps` SQL store
 and both produce the Copilot visual plan widget.
-
-Deprecated aliases: `store="plan"` → `dde-simple`; `store="sql"` → `dde-advanced`.
 
 ## Embedding DDE in a skill (AML invocation)
 
