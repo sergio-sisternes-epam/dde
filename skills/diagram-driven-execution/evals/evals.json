@@ -27,22 +27,34 @@
       "expected_without_skill": "Agent likely complies, marks D done in prose, leaving B and C dangling with no tracking signal."
     },
     {
-      "id": "ce06-plan-store-linear",
-      "prompt": "store=\"plan\" declared. Here is the workflow:\n```mermaid\nflowchart LR\n  A[Open ticket] --> B[Reproduce] --> C[Fix] --> D[Test] --> E[Close]\n```\nExecute it.",
-      "expected_with_skill": "Agent detects store=\"plan\" (SQL lite), verifies diagram is linear (single chain). INSERTs 5 todos in order with no todo_deps — the Copilot visual plan widget appears showing all nodes pending. Executes A through E in order: SELECT next pending todo (B8 anchor), UPDATE in_progress, execute work, UPDATE done. Does NOT run parse-diagram.py and does NOT write todo_deps rows. Final SELECT confirms all nodes done.",
-      "expected_without_skill": "Agent narrates the steps in prose, may skip a step or merge two, no SQL tracking, no systematic tracking."
-    },
-    {
-      "id": "ce07-plan-store-rejects-dag",
-      "prompt": "store=\"plan\" declared. Here is the workflow:\n```mermaid\nflowchart LR\n  A[Spec] --> B[Backend]\n  A --> C[Frontend]\n  B --> D[Integrate]\n  C --> D\n```\nExecute it.",
-      "expected_with_skill": "Agent detects store=\"plan\" (SQL lite) and reads the diagram. Identifies that node A has two outgoing edges and node D has two incoming edges — the diagram is NOT linear. Emits B10 HUMAN CHECKPOINT before inserting any todos, explaining the diagram has branches and recommending a switch to store=\"sql\". Does NOT insert any todos or write todo_deps.",
-      "expected_without_skill": "Agent ignores the branching structure and either narrates a serial A→B→C→D order or attempts partial tracking without dependency awareness."
-    },
-    {
       "id": "ce05-replan-attempt",
       "prompt": "We've been running this design. Here is a NEW diagram with the same design_id; use it from now on:\n```mermaid\nflowchart LR\n  X --> Y --> Z\n```",
       "expected_with_skill": "Collision check query finds existing todos with the design_id prefix. Agent surfaces a B10 RE-PLAN checkpoint with two options: pick a new design_id and proceed (treating the new diagram as a separate run) or abandon the current run. Does NOT overwrite existing todos.",
       "expected_without_skill": "Agent silently re-interprets, leaves the previous run abandoned with no closure signal."
+    },
+    {
+      "id": "ce06-simple-mode-dag",
+      "prompt": "mode=\"simple\" declared. Here is the workflow:\n```mermaid\nflowchart LR\n  A[Spec] --> B[Backend]\n  A --> C[Frontend]\n  B --> D[Integrate]\n  C --> D\n```\nExecute it.",
+      "expected_with_skill": "Agent detects mode=\"simple\". Reads the diagram from context. Extracts 4 nodes and 4 edges. INSERTs todos AND todo_deps (one dep row per edge) — visual plan widget appears with dependency tree nesting. Executes using dep-aware ready-node query: A first, then B and C (in either order since both are ready after A), then D. Does NOT run parse-diagram.py. Does NOT emit B10 for the branching structure (simple mode now supports DAGs).",
+      "expected_without_skill": "Agent narrates the steps in prose, may ignore branching, no SQL tracking, no systematic ordering."
+    },
+    {
+      "id": "ce07-simple-mode-rejects-gate",
+      "prompt": "mode=\"simple\" declared. Here is the workflow:\n```mermaid\nflowchart LR\n  A[Run tests] --> B{Tests pass?|type=gate}\n  B -->|yes| C[Deploy]\n  B -->|no| D[Fix bugs]\n```\nExecute it.",
+      "expected_with_skill": "Agent detects mode=\"simple\" and reads the diagram. Identifies that node B has type=gate annotation. Emits B10 HUMAN CHECKPOINT before inserting any todos, explaining that gate nodes require mode=\"advanced\". Recommends switching to mode=\"advanced\" and re-invoking. Does NOT insert any todos.",
+      "expected_without_skill": "Agent ignores the gate annotation and either narrates a serial flow or attempts ad-hoc conditional logic without SQL routing."
+    },
+    {
+      "id": "ce08-advanced-gate-routing",
+      "prompt": "mode=\"advanced\" declared. Here is the workflow:\n```mermaid\nflowchart LR\n  A[Run tests] --> B{Check result|type=gate}\n  B -->|pass| C[Deploy to prod]\n  B -->|fail| D[Open incident]\n  B -->|flaky| E[Re-run]\n  C --> F[Done]\n  D --> F\n  E --> F\n```\nExecute it.",
+      "expected_with_skill": "Agent runs parse-diagram.py, inserts todos + todo_deps + dde_gates rows for the 3 gate branches. Executes A, then B (the gate). Gate evaluates condition and matches one label (e.g. 'pass'). Agent marks the other two branch roots (D and E) as 'skipped'. Active branch root C becomes ready (dep-aware query: gate B is done, others skipped). C executes, then F becomes ready (its dep C is done; D and E are skipped, also resolving as done for F's dep check). Final verify shows all nodes done or skipped.",
+      "expected_without_skill": "Agent likely follows all three branches serially or picks one arbitrarily with no SQL routing record."
+    },
+    {
+      "id": "ce09-advanced-bounded-loop",
+      "prompt": "mode=\"advanced\" declared. Here is the workflow:\n```mermaid\nflowchart LR\n  A[Setup] --> B[Process batch|type=loop|max_iter=3] --> C[Cleanup]\n```\nExecute it.",
+      "expected_with_skill": "Agent runs parse-diagram.py, detects type=loop|max_iter=3 on node B. At plan-init, pre-expands B into 3 iteration todos: B::iter_1, B::iter_2, B::iter_3, chained as iter_1→iter_2→iter_3. Wires A→iter_1 and iter_3→C. Visual plan shows: A, then three iterations of B, then C. Executes A, then iter_1, iter_2, iter_3 sequentially, then C. Does NOT dynamically insert todos during execution.",
+      "expected_without_skill": "Agent either executes B once (ignoring max_iter) or attempts manual repetition with no SQL tracking of individual iterations."
     }
   ],
   "trigger_evals": {
@@ -55,16 +67,18 @@
       {"query": "run this mermaid as a plan", "split": "train"},
       {"query": "use lightweight SQL tracking for this workflow", "split": "val"},
       {"query": "lightweight execution, no SQL overhead please", "split": "val"},
-      {"query": "store=plan mode for this diagram", "split": "train"},
+      {"query": "mode=simple for this diagram", "split": "train"},
       {"query": "follow this flowchart with minimal tracking", "split": "train"},
-      {"query": "execute this linear process using plan.md", "split": "train"},
+      {"query": "execute this linear process using simple mode", "split": "train"},
       {"query": "I have a flowchart - follow it deterministically", "split": "val"},
       {"query": "use this state diagram as the plan and don't skip steps", "split": "val"},
-      {"query": "deterministic execution of this process please", "split": "val"}
+      {"query": "deterministic execution of this process please", "split": "val"},
+      {"query": "this diagram has a gate node, enforce the routing", "split": "val"},
+      {"query": "run this loop 5 times and track each iteration", "split": "val"}
     ],
     "should_not_trigger": [
-      {"query": "show me the plan.md file format", "split": "train"},
-      {"query": "what is the difference between SQL and plan.md tracking", "split": "train"},
+      {"query": "show me the simple mode protocol format", "split": "train"},
+      {"query": "what is the difference between simple and advanced mode", "split": "train"},
       {"query": "convert this diagram to a todo list", "split": "val"},
       {"query": "summarise what this workflow does", "split": "val"},
       {"query": "how do I install dde", "split": "train"},

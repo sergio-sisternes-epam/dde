@@ -43,12 +43,21 @@ with the rejection message.
 - Comments: `%% ...` on their own line.
 - Node label inline annotations (pipe-separated, after the visible
   label text):
-  - `A[Execute|type=subagent|model=opus|max_iter=3]`
-  - Recognised keys: `type` (`manual` | `subagent` | `tool` |
-    `prompt`), `model` (any string; consumed by the dispatcher),
-    `max_iter` (positive integer; cycle bound for stateDiagram).
-- The graph MUST be acyclic. Cycles are rejected; use
-  `stateDiagram-v2` if your process needs loops.
+  - `A[Execute|type=subagent|model=opus]`
+  - `A{CheckResult|type=gate}`
+  - `A[Retry Body|type=loop|max_iter=3]`
+  - Recognised keys:
+    - `type` (`manual` | `subagent` | `tool` | `prompt` | `gate` | `loop`).
+      `gate` activates multi-way conditional routing (see transition-protocol).
+      `loop` activates bounded pre-expansion; requires `max_iter`.
+    - `model` (any string; consumed by the dispatcher for `subagent` nodes).
+    - `max_iter` (positive integer; required on `type=loop` nodes; defines
+      the pre-expansion count).
+- Gate outgoing edges MUST carry labels: `A -->|label| B`. At least two
+  labelled edges are required on a gate node.
+- The graph MUST be acyclic. Loop repetition is expressed via the
+  `type=loop|max_iter=N` annotation (pre-expanded at plan-init, not as
+  a diagram cycle). Diagram cycles remain rejected.
 
 ### State diagram (v2)
 
@@ -56,8 +65,9 @@ with the rejection message.
 - Transitions: `A --> B` and `A --> B : note label`.
 - Entry / exit pseudostate: `[*]` on either side.
 - Cycles are permitted syntactically but **rejected by the parser**
-  in all diagram types. The lite-mode dependency model requires
-  acyclic graphs. Use linear or branching structures only.
+  in all diagram types. Loop repetition is expressed via the
+  `type=loop|max_iter=N` annotation on a node (pre-expanded to N
+  sequential iterations at plan-init, not as a diagram cycle).
 
 ## Rejected in v1 (loud)
 
